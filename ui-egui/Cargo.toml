@@ -1,0 +1,56 @@
+# SPDX-License-Identifier: MIT OR Apache-2.0
+
+[package]
+name = "p2pgo-ui-egui"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository = "https://github.com/danielbank/p2pgo"
+default-run = "p2pgo-ui-egui"  # Use 'cargo run -p p2pgo-cli' to run the CLI instead
+
+# macOS bundle metadata for cargo-bundle
+[package.metadata.bundle]
+name = "P2P Go"
+identifier = "io.p2pgo.desktop"
+icon = ["../assets/appicon.icns"]
+version = "0.1.0"
+copyright = "Copyright (c) 2024 P2P Go Developers"
+category = "public.app-category.games"
+short_description = "Peer-to-peer Go (囲碁) over iroh relays"
+long_description = """
+P2P Go is a peer-to-peer Go (囲碁/Baduk/Weiqi) game that uses the Iroh
+networking stack for multiplayer gameplay without central servers.
+"""
+minimum_system_version = "11.0"
+deb_depends = []
+osx_frameworks = []
+
+[dependencies]
+tokio = { version = "1", features = ["full", "rt-multi-thread"] }
+serde = { version = "1", features = ["derive"] }
+anyhow = "1"
+tracing = "0.1"
+tracing-subscriber = { workspace = true }
+egui = "0.23"
+eframe = "0.23"
+crossbeam-channel = "0.5"
+once_cell = "1"
+uuid = { version = "1", features = ["v4", "serde"] }
+clap = { version = "4", features = ["derive"] }
+serde_json = "1.0"
+serde_cbor = "0.11"
+burn = { workspace = true, features = ["wgpu"] }
+# Internal crates
+p2pgo-core = { path = "../core" }
+p2pgo-network = { path = "../network" }
+trainer = { path = "../trainer" }
+# Logging
+flexi_logger = { version = "0.25", features = ["async", "compress"] }
+
+[features]
+default = ["native", "stub"]
+native = ["eframe/glow"]
+headless = ["p2pgo-network/headless"]
+iroh = ["p2pgo-network/iroh"]
+stub = ["p2pgo-network/stub"]

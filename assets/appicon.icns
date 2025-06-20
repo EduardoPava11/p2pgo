@@ -1,0 +1,6 @@
+This is a placeholder file that would normally be an ICNS file for macOS app icons.
+You can generate a real ICNS file from your PNG icon with:
+
+./scripts/make_icns.sh assets/icon.png assets/appicon.icns
+
+A proper ICNS file contains icons in multiple sizes and resolutions from 16x16 to 1024x1024.

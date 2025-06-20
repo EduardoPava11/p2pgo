@@ -1,0 +1,95 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg width="1024" height="1024" viewBox="0 0 1024 1024" xmlns="http://www.w3.org/2000/svg">
+  <!-- Background circle with gradient -->
+  <defs>
+    <radialGradient id="bg" cx="50%" cy="30%" r="70%">
+      <stop offset="0%" style="stop-color:#4A90E2;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#357ABD;stop-opacity:1" />
+    </radialGradient>
+    <linearGradient id="board" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#D4A574;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#B8956A;stop-opacity:1" />
+    </linearGradient>
+  </defs>
+  
+  <!-- Main background -->
+  <circle cx="512" cy="512" r="512" fill="url(#bg)"/>
+  
+  <!-- Go board base -->
+  <rect x="150" y="150" width="724" height="724" rx="20" fill="url(#board)" stroke="#8B7355" stroke-width="4"/>
+  
+  <!-- Grid lines (simplified 9x9 for icon clarity) -->
+  <g stroke="#8B7355" stroke-width="2" opacity="0.8">
+    <!-- Vertical lines -->
+    <line x1="220" y1="180" x2="220" y2="844"/>
+    <line x1="300" y1="180" x2="300" y2="844"/>
+    <line x1="380" y1="180" x2="380" y2="844"/>
+    <line x1="460" y1="180" x2="460" y2="844"/>
+    <line x1="540" y1="180" x2="540" y2="844"/>
+    <line x1="620" y1="180" x2="620" y2="844"/>
+    <line x1="700" y1="180" x2="700" y2="844"/>
+    <line x1="780" y1="180" x2="780" y2="844"/>
+    <line x1="860" y1="180" x2="860" y2="844"/>
+    
+    <!-- Horizontal lines -->
+    <line x1="180" y1="220" x2="844" y2="220"/>
+    <line x1="180" y1="300" x2="844" y2="300"/>
+    <line x1="180" y1="380" x2="844" y2="380"/>
+    <line x1="180" y1="460" x2="844" y2="460"/>
+    <line x1="180" y1="540" x2="844" y2="540"/>
+    <line x1="180" y1="620" x2="844" y2="620"/>
+    <line x1="180" y1="700" x2="844" y2="700"/>
+    <line x1="180" y1="780" x2="844" y2="780"/>
+    <line x1="180" y1="860" x2="844" y2="860"/>
+  </g>
+  
+  <!-- Star points -->
+  <circle cx="300" cy="300" r="6" fill="#8B7355"/>
+  <circle cx="540" cy="300" r="6" fill="#8B7355"/>
+  <circle cx="780" cy="300" r="6" fill="#8B7355"/>
+  <circle cx="300" cy="540" r="6" fill="#8B7355"/>
+  <circle cx="540" cy="540" r="6" fill="#8B7355"/>
+  <circle cx="780" cy="540" r="6" fill="#8B7355"/>
+  <circle cx="300" cy="780" r="6" fill="#8B7355"/>
+  <circle cx="540" cy="780" r="6" fill="#8B7355"/>
+  <circle cx="780" cy="780" r="6" fill="#8B7355"/>
+  
+  <!-- Go stones with shadows -->
+  <g>
+    <!-- Black stones -->
+    <circle cx="378" cy="298" r="32" fill="#000000" opacity="0.2"/>
+    <circle cx="380" cy="300" r="32" fill="#1a1a1a"/>
+    <circle cx="380" cy="300" r="28" fill="#000000"/>
+    <circle cx="375" cy="295" r="8" fill="#333333" opacity="0.6"/>
+    
+    <circle cx="538" cy="458" r="32" fill="#000000" opacity="0.2"/>
+    <circle cx="540" cy="460" r="32" fill="#1a1a1a"/>
+    <circle cx="540" cy="460" r="28" fill="#000000"/>
+    <circle cx="535" cy="455" r="8" fill="#333333" opacity="0.6"/>
+    
+    <!-- White stones -->
+    <circle cx="618" cy="378" r="32" fill="#000000" opacity="0.2"/>
+    <circle cx="620" cy="380" r="32" fill="#f8f8f8"/>
+    <circle cx="620" cy="380" r="28" fill="#ffffff"/>
+    <circle cx="615" cy="375" r="8" fill="#ffffff" opacity="0.8"/>
+    
+    <circle cx="458" cy="698" r="32" fill="#000000" opacity="0.2"/>
+    <circle cx="460" cy="700" r="32" fill="#f8f8f8"/>
+    <circle cx="460" cy="700" r="28" fill="#ffffff"/>
+    <circle cx="455" cy="695" r="8" fill="#ffffff" opacity="0.8"/>
+  </g>
+  
+  <!-- Network connection lines (subtle) -->
+  <g stroke="#ffffff" stroke-width="3" opacity="0.3" fill="none">
+    <path d="M 100,100 Q 200,50 300,100"/>
+    <path d="M 724,100 Q 824,50 924,100"/>
+    <path d="M 100,924 Q 200,974 300,924"/>
+    <path d="M 724,924 Q 824,974 924,924"/>
+  </g>
+  
+  <!-- Network nodes -->
+  <circle cx="100" cy="100" r="8" fill="#ffffff" opacity="0.4"/>
+  <circle cx="924" cy="100" r="8" fill="#ffffff" opacity="0.4"/>
+  <circle cx="100" cy="924" r="8" fill="#ffffff" opacity="0.4"/>
+  <circle cx="924" cy="924" r="8" fill="#ffffff" opacity="0.4"/>
+</svg>

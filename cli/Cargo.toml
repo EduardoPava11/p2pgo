@@ -1,0 +1,31 @@
+# SPDX-License-Identifier: MIT OR Apache-2.0
+
+[package]
+name = "p2pgo-cli"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[[bin]]
+name = "p2pgo-cli"
+path = "src/main.rs"
+
+[lib]
+name = "p2pgo_cli"
+path = "src/lib.rs"
+
+[dependencies]
+tokio = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+anyhow = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+uuid = { workspace = true }
+clap = { workspace = true }
+chrono = { workspace = true }
+# Internal crates
+p2pgo-core = { path = "../core" }
+p2pgo-network = { path = "../network" }
