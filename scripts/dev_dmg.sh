@@ -1,15 +1,16 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # SPDX-License-Identifier: MIT OR Apache-2.0
 #
 # Script to build a universal macOS DMG package with proper app bundling
-# for development/testing without using GitHub Actions
+# for local development without using GitHub Actions
 #
 # This script:
 # 1. Builds both aarch64 and x86_64 binaries 
-# 2. Creates a universal2 binary
+# 2. Creates a universal2 binary with lipo
 # 3. Creates a proper macOS .app bundle
-# 4. Packages everything into a DMG with icon
-# 5. Ad-hoc signs the bundle for local testing
+# 4. Ad-hoc signs the bundle
+# 5. Creates a DMG with background image and Applications shortcut
+# 6. Opens the DMG when done
 
 set -euo pipefail
 
@@ -34,9 +35,6 @@ for cmd in cargo lipo create-dmg codesign; do
         echo "This should be included with macOS developer tools"
         echo "Run: xcode-select --install"
         ;;
-      "cargo")
-        echo "Install Rust from https://rustup.rs"
-        ;;
       *)
         echo "Please install $cmd to continue"
         ;;
@@ -45,46 +43,43 @@ for cmd in cargo lipo create-dmg codesign; do
   fi
 done
 
-# Read version from VERSION file or use default
-VERSION=$(cat VERSION 2>/dev/null || echo "0.1.0")
+# Ensure Rust targets are installed
+echo -e "${YELLOW}Ensuring Rust targets are installed...${NC}"
+rustup target add aarch64-apple-darwin x86_64-apple-darwin
+
+# Get version from Cargo.toml or VERSION file
+VERSION=$(grep -A 1 "^\[workspace.package\]" Cargo.toml | grep "version" | cut -d'"' -f2 2>/dev/null || cat VERSION 2>/dev/null || echo "0.1.0")
 echo -e "${BLUE}Building P2P Go v${VERSION}${NC}"
 
 # Clean up previous builds
-echo "Cleaning previous builds..."
-rm -rf target/universal-apple-darwin
-rm -rf target/dmg
-rm -f "P2P-Go-v${VERSION}.dmg"
-mkdir -p target/universal-apple-darwin
-mkdir -p target/dmg
+echo -e "${YELLOW}Cleaning previous builds...${NC}"
+rm -f "P2P Go.dmg"
+rm -rf "P2P Go.app"
 
-# Build for both architectures
-echo -e "${YELLOW}Building x86_64 binary...${NC}"
-cargo build --release --bin p2pgo-ui-egui --target x86_64-apple-darwin
+# Build both architecture binaries
+echo -e "${YELLOW}Building aarch64-apple-darwin target...${NC}"
+cargo build --release -p p2pgo-ui-egui --target aarch64-apple-darwin
 
-echo -e "${YELLOW}Building aarch64 binary...${NC}"
-cargo build --release --bin p2pgo-ui-egui --target aarch64-apple-darwin
+echo -e "${YELLOW}Building x86_64-apple-darwin target...${NC}"
+cargo build --release -p p2pgo-ui-egui --target x86_64-apple-darwin
 
-# Create universal binary
-echo -e "${YELLOW}Creating universal binary...${NC}"
+# Create universal binary with lipo
+echo -e "${YELLOW}Creating universal binary with lipo...${NC}"
 lipo -create \
-  target/x86_64-apple-darwin/release/p2pgo-ui-egui \
   target/aarch64-apple-darwin/release/p2pgo-ui-egui \
-  -output target/universal-apple-darwin/p2pgo-ui-egui
+  target/x86_64-apple-darwin/release/p2pgo-ui-egui \
+  -output p2pgo-ui-egui-universal2
 
-# Create app bundle structure
-echo -e "${YELLOW}Creating app bundle...${NC}"
-APP_NAME="P2P Go.app"
-APP_DIR="target/dmg/$APP_NAME"
-mkdir -p "$APP_DIR/Contents/MacOS"
-mkdir -p "$APP_DIR/Contents/Resources"
-mkdir -p "$APP_DIR/Contents/Frameworks"
-
-# Copy binary
-cp "target/universal-apple-darwin/p2pgo-ui-egui" "$APP_DIR/Contents/MacOS/"
-chmod +x "$APP_DIR/Contents/MacOS/p2pgo-ui-egui"
+# Bundle the .app
+echo -e "${YELLOW}Creating .app bundle...${NC}"
+mkdir -p "P2P Go.app/Contents/MacOS"
+mkdir -p "P2P Go.app/Contents/Resources"
+cp p2pgo-ui-egui-universal2 "P2P Go.app/Contents/MacOS/p2pgo-ui-egui"
+chmod +x "P2P Go.app/Contents/MacOS/p2pgo-ui-egui"
+cp assets/appicon.icns "P2P Go.app/Contents/Resources/"
 
 # Create Info.plist
-cat > "$APP_DIR/Contents/Info.plist" << EOF
+cat > "P2P Go.app/Contents/Info.plist" << EOF
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -113,38 +108,32 @@ cat > "$APP_DIR/Contents/Info.plist" << EOF
 </plist>
 EOF
 
-# Copy icon
-cp assets/appicon.icns "$APP_DIR/Contents/Resources/"
-
-# Add Applications symlink for DMG
-echo -e "${YELLOW}Preparing DMG contents...${NC}"
-ln -s /Applications "target/dmg/Applications"
-
-# Ad-hoc sign the app bundle
-echo -e "${YELLOW}Ad-hoc signing app bundle...${NC}"
-codesign --force --deep --sign - "$APP_DIR"
+# Sign the app bundle
+echo -e "${YELLOW}Ad-hoc signing the .app bundle...${NC}"
+codesign --deep --force --sign - "P2P Go.app"
 
 # Create DMG
-echo -e "${YELLOW}Creating DMG with background image...${NC}"
-DMG_FILE="P2P-Go-v${VERSION}.dmg"
-
+echo -e "${YELLOW}Creating DMG...${NC}"
 create-dmg \
   --volname "P2P Go" \
+  --window-pos 200 120 \
+  --window-size 660 400 \
+  --icon-size 80 \
   --icon "P2P Go.app" 180 170 \
   --app-drop-link 480 170 \
-  --window-size 660 400 \
   --background "assets/dmg_bg.png" \
-  --icon-size 80 \
-  "$DMG_FILE" \
-  "target/dmg/" \
-  || echo -e "${RED}Warning: DMG creation had issues, but may have succeeded${NC}"
+  "P2P Go.dmg" \
+  .
 
-# Check if DMG was created
-if [ -f "$DMG_FILE" ]; then
-  DMG_SIZE=$(du -h "$DMG_FILE" | cut -f1)
-  echo -e "${GREEN}✅ DMG created successfully: ${DMG_FILE} (${DMG_SIZE})${NC}"
-  echo -e "${BLUE}You can now test the DMG by double-clicking it.${NC}"
+# Cleanup
+rm -f p2pgo-ui-egui-universal2
+
+# Open DMG
+if [ -f "P2P Go.dmg" ]; then
+  echo -e "${GREEN}✅ DMG created successfully: P2P Go.dmg${NC}"
+  echo -e "${YELLOW}Opening DMG...${NC}"
+  open "P2P Go.dmg"
 else
-  echo -e "${RED}❌ DMG creation failed.${NC}"
+  echo -e "${RED}❌ DMG creation failed${NC}"
   exit 1
 fi

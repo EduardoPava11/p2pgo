@@ -6,8 +6,11 @@ version.workspace = true
 edition.workspace = true
 authors.workspace = true
 license.workspace = true
+description.workspace = true
+homepage.workspace = true
 repository = "https://github.com/danielbank/p2pgo"
 default-run = "p2pgo-ui-egui"  # Use 'cargo run -p p2pgo-cli' to run the CLI instead
+build = "build.rs"
 
 # macOS bundle metadata for cargo-bundle
 [package.metadata.bundle]

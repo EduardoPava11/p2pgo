@@ -1,19 +1,11 @@
 [target.aarch64-apple-darwin]
 rustflags = [
-    "-C", "link-arg=-Wl,-rpath,@executable_path/../Frameworks",
-    "-C", "link-arg=-Wl,-rpath,@loader_path/../Frameworks",
-    "-C", "link-arg=-Wl,-rpath,/usr/lib"
+  "-C", "link-arg=-unwindlib=system",
+  "-C", "link-arg=-Wl,-rpath,@executable_path/../Frameworks"
 ]
-# Force the use of system libunwind to avoid "bad CPU type in executable" on M1+
-[target.aarch64-apple-darwin.rust-std]
-rustc-link-lib = ["unwind=unwind"]
 
 [target.x86_64-apple-darwin]
 rustflags = [
-    "-C", "link-arg=-Wl,-rpath,@executable_path/../Frameworks",
-    "-C", "link-arg=-Wl,-rpath,@loader_path/../Frameworks",
-    "-C", "link-arg=-Wl,-rpath,/usr/lib"
+  "-C", "link-arg=-unwindlib=system",
+  "-C", "link-arg=-Wl,-rpath,@executable_path/../Frameworks"
 ]
-# Force the use of system libunwind to avoid "bad CPU type in executable" on Intel
-[target.x86_64-apple-darwin.rust-std]
-rustc-link-lib = ["unwind=unwind"]
