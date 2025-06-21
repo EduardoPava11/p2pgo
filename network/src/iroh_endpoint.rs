@@ -5,6 +5,7 @@
 use anyhow::{Result, Context, ensure, bail};
 use p2pgo_core::MoveRecord;
 use crate::config::{load_config, RelayModeConfig};
+use crate::relay_monitor::RelayMonitor;
 
 #[cfg(feature = "iroh")]
 use {
@@ -119,6 +120,8 @@ pub struct IrohCtx {
     my_id: String,
     // Channel for receiving incoming connections
     connection_rx: Arc<tokio::sync::Mutex<tokio_mpsc::UnboundedReceiver<Connection>>>,
+    // Relay monitoring
+    relay_stats: Arc<tokio::sync::RwLock<std::collections::HashMap<String, crate::relay_monitor::RelayStats>>>,
 }
 
 #[cfg(not(feature = "iroh"))]
@@ -240,6 +243,10 @@ impl IrohCtx {
             // Create a default author ID for signing documents
             let default_author = AuthorId::from([0; 32]);
             
+            // Initialize relay monitoring
+            let relay_monitor = RelayMonitor::new(endpoint.clone(), config.relay_addrs.clone());
+            let relay_stats = relay_monitor.start_monitoring();
+            
             tracing::info!("Iroh networking context initialized successfully");
             
             Ok(Self {
@@ -251,6 +258,7 @@ impl IrohCtx {
                 default_author,
                 my_id,
                 connection_rx: Arc::new(tokio::sync::Mutex::new(connection_rx)),
+                relay_stats,
             })
         }
         
@@ -281,6 +289,12 @@ impl IrohCtx {
     #[cfg(feature = "iroh")]
     pub fn blobs(&self) -> &Blobs {
         &self.blobs
+    }
+    
+    /// Get relay statistics
+    #[cfg(feature = "iroh")]
+    pub fn relay_stats(&self) -> &Arc<tokio::sync::RwLock<std::collections::HashMap<String, crate::relay_monitor::RelayStats>>> {
+        &self.relay_stats
     }
     
     /// Generate a connection ticket with optional game size hint
