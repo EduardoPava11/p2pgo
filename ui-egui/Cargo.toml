@@ -37,6 +37,8 @@ tracing = "0.1"
 tracing-subscriber = { workspace = true }
 egui = "0.23"
 eframe = "0.23"
+egui_plot = "0.23"
+petgraph = "0.6"
 crossbeam-channel = "0.5"
 once_cell = "1"
 uuid = { version = "1", features = ["v4", "serde"] }
@@ -50,6 +52,7 @@ p2pgo-network = { path = "../network" }
 trainer = { path = "../trainer" }
 # Logging
 flexi_logger = { version = "0.25", features = ["async", "compress"] }
+tracing-error = "0.2"
 
 [features]
 default = ["native", "stub"]

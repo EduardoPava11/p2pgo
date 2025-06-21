@@ -10,6 +10,7 @@ use std::thread::JoinHandle;
 use crate::msg::{UiToNet, NetToUi};
 use crate::view::View;
 use crate::board_widget::BoardWidget;
+use crate::network_panel::NetworkPanel;
 
 #[allow(dead_code)]
 const DEFAULT_SIZE: u8 = 9; // was 19
@@ -77,6 +78,8 @@ pub struct App {
     nat_report: Option<String>,
     /// Default board size for game creation and gossip subscription
     default_board_size: u8,
+    /// Network diagnostics panel
+    network_panel: NetworkPanel,
 }
 
 impl App {
@@ -102,6 +105,7 @@ impl App {
             ticket_input: String::new(),
             nat_report: None,
             default_board_size: board_size,
+            network_panel: NetworkPanel::new(),
         }
     }
 
@@ -126,6 +130,7 @@ impl App {
             ticket_input: String::new(),
             nat_report: None,
             default_board_size: DEFAULT_SIZE,
+            network_panel: NetworkPanel::new(),
         }
     }
     
@@ -150,6 +155,7 @@ impl App {
             ticket_input: String::new(),
             nat_report: None,
             default_board_size: DEFAULT_SIZE,
+            network_panel: NetworkPanel::new(),
         }
     }
 
@@ -690,11 +696,29 @@ impl eframe::App for App {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         self.handle_network_messages();
         
+        // Update network panel stats
+        self.network_panel.update_stats(ctx);
+        
         // Handle F1 key to toggle debug overlay
         if ctx.input(|i| i.key_pressed(egui::Key::F1)) {
             self.show_overlay = !self.show_overlay;
             tracing::debug!("Debug overlay toggled: {}", self.show_overlay);
         }
+        
+        // Top menu bar with network status
+        egui::TopBottomPanel::top("top_panel").show(ctx, |ui| {
+            ui.horizontal(|ui| {
+                ui.label("P2P Go");
+                ui.separator();
+                self.network_panel.draw_status_badge(ui);
+                
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    if let Some(node_id) = &self.node_id {
+                        ui.label(format!("Node: {:.8}...", node_id));
+                    }
+                });
+            });
+        });
         
         egui::CentralPanel::default().show(ctx, |ui| {
             match &self.current_view {
@@ -749,6 +773,9 @@ impl eframe::App for App {
                     });
             }
         });
+        
+        // Show network diagnostics panel
+        self.network_panel.show(ctx);
         
         // Render debug overlay on top
         self.render_debug_overlay(ctx);

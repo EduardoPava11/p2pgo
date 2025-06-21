@@ -10,6 +10,7 @@ pub mod view;
 pub mod msg;
 pub mod board_widget;
 pub mod worker;
+pub mod network_panel;
 
 // Headless function for testing
 #[cfg(feature = "headless")]
