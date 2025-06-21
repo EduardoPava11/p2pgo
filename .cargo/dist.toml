@@ -1,47 +1,14 @@
 # SPDX-License-Identifier: MIT OR Apache-2.0
 
-# cargo-dist configuration for P2P Go
-# This creates universal-2 Mac binaries and signed DMGs
-
 [dist]
-# Enable cargo-dist
-dist = true
-
-# Set the cargo-dist version
 cargo-dist-version = "0.22.0"
-
-# Allow manual changes to the CI workflow
-allow-dirty = ["ci"]
-
-# Target platforms to build apps for (Rust target-triple syntax)
-targets = ["universal2-apple-darwin"]
-
-# Create a universal binary by merging x86_64 and aarch64 builds
-apple-universal = true
-
-# Only create DMG installers
+targets = ["aarch64-apple-darwin"]
 installers = ["dmg"]
+apple-universal = false        # AS-only
+sign-macos    = true           # ad-hoc if no cert
+apple-notarize = false
 
-# CI configuration
-ci = ["github"]
-
-# IMPORTANT: Signing and notarization
-# Ad-hoc signing is enabled for local development
-sign-macos = true       # Enable ad-hoc signing
-apple-notarize = false  # No notarization in CI
-
-# Package metadata  
-[dist.package-metadata]
-description = "Peer-to-peer Go (囲碁) over iroh relays"
-homepage = "https://p2pgo.io"
-repository = "https://github.com/danielbank/p2pgo"
-license = "MIT OR Apache-2.0"
-readme = "README.md"
-
-# DMG settings for macOS
 [dist.dmg]
 background = "assets/dmg_bg.png"
-icon-size = 80
 window-size = [660, 400]
-app-position = [180, 170]
-applications-position = [480, 170]
+icon-size   = 80
