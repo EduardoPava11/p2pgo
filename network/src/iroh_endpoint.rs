@@ -251,10 +251,18 @@ impl IrohCtx {
     pub async fn ticket_with_game_doc(&self, game_id: Option<&str>, game_size: Option<u8>) -> Result<String> {
         #[cfg(feature = "iroh")]
         {
-            let addr = self.endpoint.node_addr().await?;
+            let mut addr = self.endpoint.node_addr().await?;
+            
+            // Ensure relay URLs are included for internet connectivity
+            if addr.relay_url.is_none() {
+                // Wait a bit for relay to be established
+                tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+                addr = self.endpoint.node_addr().await?;
+            }
             
             // Ensure we have external addresses for internet connectivity
-            ensure!(!addr.direct_addresses.is_empty(), "NodeAddr missing external addresses - relay not ready");
+            ensure!(!addr.direct_addresses.is_empty() || addr.relay_url.is_some(), 
+                "NodeAddr missing both external addresses and relay - network not ready");
             
             let doc = match game_id {
                 Some(gid) => Some(Self::doc_id_for_game(gid)),
@@ -272,7 +280,8 @@ impl IrohCtx {
             let bytes = serde_cbor::to_vec(&ticket)?;
             let ticket_str = B64.encode(bytes);
             
-            tracing::debug!("Generated Iroh ticket with {} addresses: {}", addr.direct_addresses.len(), ticket_str);
+            tracing::debug!("Generated Iroh ticket with {} addresses, relay: {:?}: {}", 
+                addr.direct_addresses.len(), addr.relay_url, ticket_str);
             Ok(ticket_str)
         }
         
