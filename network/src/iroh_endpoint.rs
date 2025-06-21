@@ -4,6 +4,7 @@
 
 use anyhow::{Result, Context, ensure, bail};
 use p2pgo_core::MoveRecord;
+use crate::config::{load_config, RelayModeConfig};
 
 #[cfg(feature = "iroh")]
 use {
@@ -14,7 +15,8 @@ use {
     iroh_gossip::{proto::TopicId, net::{Gossip, GossipTopic}},
     base64::engine::general_purpose::STANDARD as B64,
     base64::Engine,
-    tokio::sync::mpsc,
+    tokio::sync::mpsc as tokio_mpsc,
+    flume,
     futures_lite::{future::Boxed as BoxedFuture, StreamExt},
     std::sync::Arc,
     bytes::Bytes,
@@ -22,7 +24,10 @@ use {
 };
 
 #[cfg(not(feature = "iroh"))]
-use tokio::sync::mpsc;
+use {
+    tokio::sync::mpsc as tokio_mpsc,
+    flume,
+};
 
 #[cfg(not(feature = "iroh"))]
 // Stub implementation only needs minimal stubs defined below
@@ -36,12 +41,12 @@ const P2PGO_ALPN: &[u8] = b"p2pgo";
 #[derive(Debug, Clone)]
 pub struct P2PGoProtocol {
     // Channel to send incoming connections to the application layer
-    connection_tx: Arc<tokio::sync::mpsc::UnboundedSender<Connection>>,
+    connection_tx: Arc<tokio_mpsc::UnboundedSender<Connection>>,
 }
 
 #[cfg(feature = "iroh")]
 impl P2PGoProtocol {
-    pub fn new(connection_tx: tokio::sync::mpsc::UnboundedSender<Connection>) -> Self {
+    pub fn new(connection_tx: tokio_mpsc::UnboundedSender<Connection>) -> Self {
         Self {
             connection_tx: Arc::new(connection_tx),
         }
@@ -113,7 +118,7 @@ pub struct IrohCtx {
     default_author: AuthorId,
     my_id: String,
     // Channel for receiving incoming connections
-    connection_rx: Arc<tokio::sync::Mutex<tokio::sync::mpsc::UnboundedReceiver<Connection>>>,
+    connection_rx: Arc<tokio::sync::Mutex<tokio_mpsc::UnboundedReceiver<Connection>>>,
 }
 
 #[cfg(not(feature = "iroh"))]
@@ -130,9 +135,53 @@ impl IrohCtx {
         {
             tracing::debug!("Creating Iroh endpoint with relay support");
             
-            // Create iroh endpoint with relay support for NAT traversal
-            let endpoint = Endpoint::builder()
-                .relay_mode(iroh::RelayMode::Default)
+            // Load network configuration
+            let config = load_config().unwrap_or_else(|e| {
+                tracing::warn!("Failed to load network config, using defaults: {}", e);
+                crate::config::NetworkConfig::default()
+            });
+            
+            tracing::info!("Network config loaded: relay_mode={:?}, {} relay addresses", 
+                config.relay_mode, config.relay_addrs.len());
+            
+            // Create iroh endpoint with configured relay support
+            let mut endpoint_builder = Endpoint::builder();
+            
+            // Configure relay mode based on config
+            match config.relay_mode {
+                RelayModeConfig::Default => {
+                    tracing::info!("Using default Iroh relays");
+                    endpoint_builder = endpoint_builder.relay_mode(iroh::RelayMode::Default);
+                },
+                RelayModeConfig::Custom => {
+                    if config.relay_addrs.is_empty() {
+                        tracing::warn!("Custom relay mode specified but no relays configured, falling back to default");
+                        endpoint_builder = endpoint_builder.relay_mode(iroh::RelayMode::Default);
+                    } else {
+                        tracing::info!("Using custom relays: {:?}", config.relay_addrs);
+                        let mut relay_opts = iroh::relay::RelayOptions::new();
+                        
+                        // Add configured relays
+                        for addr_str in &config.relay_addrs {
+                            match addr_str.parse() {
+                                Ok(addr) => {
+                                    relay_opts = relay_opts.add_bootstrap(addr);
+                                    tracing::info!("Added relay: {}", addr_str);
+                                },
+                                Err(e) => tracing::error!("Invalid relay address {}: {}", addr_str, e),
+                            }
+                        }
+                        
+                        endpoint_builder = endpoint_builder.relay_mode(iroh::RelayMode::Custom(relay_opts));
+                    }
+                },
+                RelayModeConfig::SelfRelay => {
+                    tracing::info!("This node will act as a relay");
+                    endpoint_builder = endpoint_builder.relay_mode(iroh::RelayMode::Relay);
+                },
+            }
+            
+            let endpoint = endpoint_builder
                 .bind()
                 .await
                 .context("Failed to bind iroh endpoint")?;
@@ -251,18 +300,40 @@ impl IrohCtx {
     pub async fn ticket_with_game_doc(&self, game_id: Option<&str>, game_size: Option<u8>) -> Result<String> {
         #[cfg(feature = "iroh")]
         {
-            let mut addr = self.endpoint.node_addr().await?;
+            let mut addr = self.endpoint.node_addr().await?
+                .with_default_relay(true);  // Ensure relay addresses are included
             
             // Ensure relay URLs are included for internet connectivity
             if addr.relay_url.is_none() {
+                tracing::info!("Waiting for relay to be established...");
                 // Wait a bit for relay to be established
                 tokio::time::sleep(std::time::Duration::from_millis(500)).await;
-                addr = self.endpoint.node_addr().await?;
+                addr = self.endpoint.node_addr().await?
+                    .with_default_relay(true);
             }
             
             // Ensure we have external addresses for internet connectivity
             ensure!(!addr.direct_addresses.is_empty() || addr.relay_url.is_some(), 
                 "NodeAddr missing both external addresses and relay - network not ready");
+            
+            // Check for relay multiaddr in direct_addresses - more comprehensive check
+            let relay_addrs: Vec<_> = addr.direct_addresses.iter()
+                .filter(|a| {
+                    let addr_str = a.to_string();
+                    addr_str.contains("/dns4/") && (addr_str.contains("/relay/") || addr_str.contains("relay."))
+                })
+                .collect();
+            
+            // Log relay status
+            if !relay_addrs.is_empty() {
+                tracing::info!("✅ Ticket contains {} relay multiaddrs: {:?}", 
+                    relay_addrs.len(), 
+                    relay_addrs.iter().map(|a| a.to_string()).collect::<Vec<_>>());
+            } else if addr.relay_url.is_some() {
+                tracing::info!("✅ Ticket contains relay URL: {:?}", addr.relay_url);
+            } else {
+                tracing::warn!("⚠️ Ticket has NO relay multiaddrs! Connection may fail on NATs.");
+            }
             
             let doc = match game_id {
                 Some(gid) => Some(Self::doc_id_for_game(gid)),
@@ -282,6 +353,7 @@ impl IrohCtx {
             
             tracing::debug!("Generated Iroh ticket with {} addresses, relay: {:?}: {}", 
                 addr.direct_addresses.len(), addr.relay_url, ticket_str);
+            
             Ok(ticket_str)
         }
         
@@ -371,7 +443,7 @@ impl IrohCtx {
     /// Subscribe to a specific gossip topic
     #[tracing::instrument(level = "debug", skip(self))]
     #[cfg(feature = "iroh")]
-    pub async fn subscribe_gossip_topic(&self, topic_id: TopicId, buffer_size: usize) -> Result<mpsc::Receiver<iroh_gossip::net::Event>> {
+    pub async fn subscribe_gossip_topic(&self, topic_id: TopicId, buffer_size: usize) -> Result<flume::Receiver<iroh_gossip::net::Event>> {
         tracing::debug!("Subscribing to gossip topic: {:?}", topic_id);
         
         // Subscribe to the topic with empty bootstrap peers
@@ -379,8 +451,8 @@ impl IrohCtx {
         let mut gossip_topic = self.gossip.subscribe(topic_id, bootstrap_peers)
             .context("Failed to subscribe to gossip topic")?;
         
-        // Create a channel to convert the stream to a receiver
-        let (tx, rx) = mpsc::channel(buffer_size);
+        // Create a bounded flume channel with larger buffer (256) to prevent back-pressure
+        let (tx, rx) = flume::bounded(256);
         
         // Spawn a task to forward events with retry logic
         tokio::spawn(async move {
@@ -388,8 +460,13 @@ impl IrohCtx {
             loop {
                 match gossip_topic.next().await {
                     Some(Ok(event)) => {
-                        tracing::debug!("Received gossip event: {:?}", event);
-                        if tx.send(event).await.is_err() {
+                        // Monitor channel capacity to detect potential backpressure
+                        let len = tx.len();
+                        if len > 200 {
+                            tracing::trace!("Gossip channel buffer high: {}/256 events", len);
+                        }
+                        
+                        if tx.send_async(event).await.is_err() {
                             tracing::debug!("Gossip event receiver dropped");
                             break;
                         }
@@ -414,18 +491,18 @@ impl IrohCtx {
     /// Subscribe to gossip topic for lobby (stub implementation)
     #[tracing::instrument(level = "debug", skip(self))]
     #[cfg(not(feature = "iroh"))]
-    pub async fn subscribe_lobby(&self, board_size: u8) -> Result<mpsc::Receiver<()>> {
+    pub async fn subscribe_lobby(&self, board_size: u8) -> Result<flume::Receiver<()>> {
         tracing::debug!("Mock subscribe to lobby for board size: {}", board_size);
-        let (_, rx) = mpsc::channel(1);
+        let (_, rx) = flume::bounded(256);
         Ok(rx)
     }
     
     /// Subscribe to gossip topic for a specific game (stub implementation)
     #[tracing::instrument(level = "debug", skip(self))]
     #[cfg(not(feature = "iroh"))]
-    pub async fn subscribe_game_topic(&self, game_id: &str, _buffer_size: usize) -> Result<mpsc::Receiver<()>> {
+    pub async fn subscribe_game_topic(&self, game_id: &str, _buffer_size: usize) -> Result<flume::Receiver<()>> {
         tracing::debug!("Mock subscribe to game topic for: {}", game_id);
-        let (_, rx) = mpsc::channel(1);
+        let (_, rx) = flume::bounded(256);
         Ok(rx)
     }
     
