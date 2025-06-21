@@ -6,6 +6,9 @@ version.workspace = true
 edition.workspace = true
 authors.workspace = true
 license.workspace = true
+description = "Core game logic for P2P Go"
+homepage = "https://p2pgo.io"
+repository = "https://github.com/danielbank/p2pgo"
 
 [dependencies]
 serde = { workspace = true }

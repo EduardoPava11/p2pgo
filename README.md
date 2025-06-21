@@ -85,6 +85,11 @@ cargo run --package p2pgo-ui-egui
 ./scripts/dev_dmg.sh
 ```
 
+### One-shot rebuild of CI after editing dist config
+```bash
+cargo dist init --update-ci
+```
+
 ### Creating App Icons
 
 ```bash
@@ -98,6 +103,7 @@ The project uses GitHub Actions for continuous integration and deployment:
 
 - Every Git tag matching `v*.*.*` triggers a release build
 - Automated testing with `cargo test --workspace --all-features`
+- Universal macOS DMGs are built by the CI pipeline
 - macOS universal binary (x86_64 + arm64) with signed DMG
 - Homebrew tap distribution
 
