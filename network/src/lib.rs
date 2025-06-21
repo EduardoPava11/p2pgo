@@ -16,6 +16,7 @@ pub mod iroh_endpoint;
 pub mod archive;
 pub mod gossip_compat;
 pub mod crash_logger;
+pub mod config;
 
 // Re-export key types for convenience
 pub use lobby::Lobby;
