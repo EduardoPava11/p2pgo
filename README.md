@@ -6,7 +6,7 @@ p2pgo is a peer-to-peer Go (board game) application built in Rust. It enables us
 
 The **Internet-Ready MVP** is now **COMPLETE**! 
 
-✅ **Mac-ready universal-2 artifact** - DMG + signed binary via cargo-dist  
+✅ **Mac-ready Apple Silicon artifact** - DMG + signed binary  
 ✅ **P2P networking with Internet relays** - Full Iroh relay support  
 ✅ **Game persistence** - Finished games archived as CBOR files  
 ✅ **Crash logging** - 1GB rotation in `~/Library/Logs/p2pgo/`  
@@ -35,7 +35,7 @@ The project is structured as a Rust workspace with the following crates:
 - ✅ Game persistence (finished games archived as CBOR)
 - ✅ Crash logging with 1GB rotation (macOS ~/Library/Logs/)
 - ✅ Spectator-only seed nodes for network reliability
-- ✅ Universal-2 macOS binaries with signed DMG distribution
+- ✅ Apple Silicon (M-series/A-series) macOS binaries with signed DMG distribution
 - ✅ Desktop UI with high-contrast monochrome design
 - ✅ CLI interface with spectator mode support
 - ✅ Gossip-based network discovery with direct connections
@@ -69,25 +69,47 @@ cargo run --package p2pgo-ui-egui
 
 ## Development
 
+For detailed development information, build instructions, architecture notes, and contribution guidelines, see the **[DEVELOPMENT_GUIDE.md](DEVELOPMENT_GUIDE.md)**.
+
 ### Requirements
 
 - Rust 1.65 or later
-- macOS 11+ (Big Sur or later) for DMG packaging
+- macOS 11+ (Apple Silicon only)
 
-### Building macOS DMG
+### Quick Start
 
 ```bash
-# Create development DMG (universal binary for Intel and Apple Silicon)
+# Clone the repository
+git clone https://github.com/danielbank/p2pgo.git
+cd p2pgo
+
+# Build and create a DMG package
 ./scripts/dev_dmg.sh
 
-# Generate ICNS from PNG icon (if you have updated the icon)
-./scripts/make_icns.sh assets/icon.png assets/appicon.icns
-./scripts/dev_dmg.sh
+# Or build and run directly
+cargo run --package p2pgo-ui-egui
 ```
 
-### One-shot rebuild of CI after editing dist config
+### Local Apple Silicon Build
+
 ```bash
-cargo dist init --update-ci
+# Build a clean Apple Silicon DMG
+./scripts/dev_dmg.sh
+
+# Test the application
+open "P2P Go.dmg"
+```
+
+### Two-Player Testing
+
+```bash
+# Terminal A (host)
+cargo run -p p2pgo-ui-egui --features iroh
+# click "Host Game", copy ticket
+
+# Terminal B (remote)
+cargo run -p p2pgo-ui-egui --features iroh  
+# click "Join Game", paste ticket
 ```
 
 ### Creating App Icons
@@ -174,15 +196,18 @@ cargo run -p p2pgo-cli -- --spectator
 ### Building Releases
 
 ```bash
-# Install cargo-dist for release builds
-cargo install cargo-dist
+# Build Apple Silicon DMG  
+./scripts/dev_dmg.sh
 
-# Build universal macOS binaries
-cargo dist build --target universal2-apple-darwin
-
-# Build for all platforms (requires GitHub Actions)  
-cargo dist plan --output-format=json
+# Build for CI/CD (requires GitHub Actions)
+git tag vX.Y.Z && git push origin vX.Y.Z
 ```
+
+# Test the application
+open "P2P Go.dmg"
+```
+
+This creates a properly bundled DMG containing only the app and a shortcut to Applications. All frameworks including `libunwind` are properly bundled with correct @rpath settings.
 
 ## Requirements
 
@@ -224,7 +249,6 @@ cargo run --release &     # window 2 – paste ticket → Join
 4. **Run the CLI application:**
    ```
    cargo run -p p2pgo-cli -- --role host --size 19
-   ```
    ```
 
 3. **Run the application:**
