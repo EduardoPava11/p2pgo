@@ -10,7 +10,7 @@ By participating in this project, you agree to abide by our Code of Conduct. Ple
 
 ### Reporting Bugs
 
-1. Check if the bug has already been reported in [Issues](https://github.com/yourusername/p2pgo/issues)
+1. Check if the bug has already been reported in [Issues](https://github.com/EduardoPava11/p2pgo/issues)
 2. If not, create a new issue with:
    - Clear title and description
    - Steps to reproduce
@@ -31,11 +31,11 @@ By participating in this project, you agree to abide by our Code of Conduct. Ple
 
 ```bash
 # Fork and clone the repository
-git clone https://github.com/YOUR_USERNAME/p2pgo.git
+git clone https://github.com/EduardoPava11/p2pgo.git
 cd p2pgo
 
 # Add upstream remote
-git remote add upstream https://github.com/ORIGINAL_OWNER/p2pgo.git
+git remote add upstream https://github.com/EduardoPava11/p2pgo.git
 
 # Create a feature branch
 git checkout -b feature/your-feature-name

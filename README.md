@@ -34,7 +34,7 @@ A decentralized Go game with neural network AI - no servers required! Play Go di
 
 ### Download & Install
 
-**macOS**: [Download P2PGo.dmg](https://github.com/yourusername/p2pgo/releases/latest/download/P2PGo-universal.dmg)
+**macOS**: [Download P2PGo.dmg](https://github.com/EduardoPava11/p2pgo/releases/latest/download/P2PGo-universal.dmg)
 
 Simply download, open the DMG, and drag P2P Go to your Applications folder.
 
@@ -55,7 +55,7 @@ Simply download, open the DMG, and drag P2P Go to your Applications folder.
 
 ```bash
 # Clone the repository
-git clone https://github.com/yourusername/p2pgo.git
+git clone https://github.com/EduardoPava11/p2pgo.git
 cd p2pgo
 
 # Build in release mode
@@ -163,8 +163,8 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ## 💬 Community
 
-- **Issues**: [GitHub Issues](https://github.com/yourusername/p2pgo/issues)
-- **Discussions**: [GitHub Discussions](https://github.com/yourusername/p2pgo/discussions)
+- **Issues**: [GitHub Issues](https://github.com/EduardoPava11/p2pgo/issues)
+- **Discussions**: [GitHub Discussions](https://github.com/EduardoPava11/p2pgo/discussions)
 
 ---
 

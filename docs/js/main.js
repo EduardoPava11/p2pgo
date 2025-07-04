@@ -31,7 +31,7 @@ window.addEventListener('scroll', () => {
 // Fetch latest release version from GitHub
 async function updateVersion() {
     try {
-        const response = await fetch('https://api.github.com/repos/yourusername/p2pgo/releases/latest');
+        const response = await fetch('https://api.github.com/repos/EduardoPava11/p2pgo/releases/latest');
         if (response.ok) {
             const data = await response.json();
             const version = data.tag_name || 'v1.0.0';
@@ -47,7 +47,7 @@ async function updateVersion() {
 // Update download link with latest release
 async function updateDownloadLink() {
     try {
-        const response = await fetch('https://api.github.com/repos/yourusername/p2pgo/releases/latest');
+        const response = await fetch('https://api.github.com/repos/EduardoPava11/p2pgo/releases/latest');
         if (response.ok) {
             const data = await response.json();
             const dmgAsset = data.assets.find(asset => asset.name.endsWith('.dmg'));
