@@ -51,6 +51,8 @@ pub enum UiToNet {
     },
     /// Force restart the network layer
     RestartNetwork,
+    /// Run network connection test
+    RunConnectionTest,
 }
 
 /// Messages sent from Network worker to UI
@@ -129,6 +131,18 @@ pub enum NetToUi {
         current_bandwidth_mbps: f64,
         /// Maximum allowed bandwidth in Mbps
         max_bandwidth_mbps: f64,
+    },
+    /// Game was restored from a saved snapshot
+    GameRestored {
+        /// Game ID that was restored
+        game_id: String,
+        /// Number of moves in the restored game
+        move_count: usize,
+    },
+    /// Connection test results
+    ConnectionTestResults {
+        /// Test result messages
+        results: Vec<String>,
     },
 }
 

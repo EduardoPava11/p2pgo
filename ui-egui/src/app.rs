@@ -4,7 +4,7 @@
 
 use crossbeam_channel::{Sender, Receiver};
 use eframe::egui;
-use p2pgo_core::{Move, Color};
+use p2pgo_core::{Move, Color, Coord};
 use std::thread::JoinHandle;
 
 use crate::msg::{UiToNet, NetToUi};
@@ -14,10 +14,10 @@ use crate::network_panel::NetworkPanel;
 use crate::clipboard_helper::ClipboardHelper;
 use crate::toast_manager::{ToastManager, ToastType};
 use crate::offline_game::OfflineGoGame;
-use crate::neural_training_ui::NeuralTrainingUI;
-use crate::neural_overlay::NeuralOverlay;
+use crate::neural_placeholder::{NeuralTrainingUI, NeuralOverlay};
 use crate::error_logger::{ErrorLogger, ErrorLogViewer};
-use crate::design_system::get_design_system;
+use crate::connection_status::{ConnectionStatusWidget, ConnectionState};
+use crate::labeled_input::{show_labeled_input, show_labeled_identifier, IdentifierType};
 // use crate::update_checker::{UpdateChecker, UpdateCheckResult, Version};
 // use crate::update_ui::{UpdateNotification, UpdateDialog, UpdateAction};
 
@@ -124,6 +124,12 @@ pub struct App {
     show_neural_training: bool,
     /// Show error log viewer
     show_error_log: bool,
+    /// Connection status widget
+    connection_status: ConnectionStatusWidget,
+    /// Network operation in progress
+    network_operation: Option<String>,
+    /// Track if we've shown the ghost moves error message
+    ghost_moves_error_shown: bool,
 }
 
 impl App {
@@ -169,6 +175,9 @@ impl App {
             error_log_viewer: ErrorLogViewer::new(),
             show_neural_training: false,
             show_error_log: false,
+            connection_status: ConnectionStatusWidget::new(),
+            network_operation: None,
+            ghost_moves_error_shown: false,
         }
     }
 
@@ -210,6 +219,9 @@ impl App {
             error_log_viewer: ErrorLogViewer::new(),
             show_neural_training: false,
             show_error_log: false,
+            connection_status: ConnectionStatusWidget::new(),
+            network_operation: None,
+            ghost_moves_error_shown: false,
         }
     }
     
@@ -251,6 +263,9 @@ impl App {
             error_log_viewer: ErrorLogViewer::new(),
             show_neural_training: false,
             show_error_log: false,
+            connection_status: ConnectionStatusWidget::new(),
+            network_operation: None,
+            ghost_moves_error_shown: false,
         }
     }
 
@@ -355,6 +370,9 @@ impl App {
             #[cfg(feature = "headless")]
             println!("App received message: {:?}", msg);
             
+            // Update connection status widget
+            self.connection_status.update_from_message(&msg);
+            
             match msg {
                 NetToUi::GamesUpdated { games } => {
                     if let View::MainMenu { available_games, creating_game: _, board_size: _ } = &mut self.current_view {
@@ -367,23 +385,16 @@ impl App {
                             #[cfg(feature = "headless")]
                             println!("Move made event received: {:?}", mv);
                             
-                            // Transition from Lobby to Game on first move
-                            if let View::Lobby { game_id } = &self.current_view {
-                                #[cfg(feature = "headless")]
-                                println!("Transitioning from Lobby to Game on first move");
-                                
-                                let board_size = self.board_widget.get_board_size();
-                                let game_state = p2pgo_core::GameState::new(board_size);
-                                self.current_view = View::Game {
-                                    game_id: game_id.clone(),
-                                    game_state,
-                                    our_color: None, // We'll set this based on move order
-                                };
-                                // Request initial ghost moves when transitioning to game view
-                                let _ = self.ui_tx.send(UiToNet::GetGhostMoves);
-                            }
-                            
                             if let View::Game { game_state, .. } = &mut self.current_view {
+                                // Animate the move
+                                match mv {
+                                    p2pgo_core::Move::Place { x, y, color } => {
+                                        let coord = Coord { x: *x, y: *y };
+                                        self.board_widget.animate_stone_placement(coord, *color);
+                                    }
+                                    _ => {} // Pass and Resign don't need animation
+                                }
+                                
                                 let _ = game_state.apply_move(mv.clone());
                                 // Update last blob hash for debug overlay - use move type description
                                 self.last_blob_hash = Some(format!("{:?}", mv));
@@ -402,21 +413,57 @@ impl App {
                 }
                 NetToUi::GameJoined { game_id } => {
                     #[cfg(feature = "headless")]
-                    println!("Game joined: {}, transitioning to Lobby", game_id);
-                    self.current_view = View::Lobby { game_id };
-                    // Request initial ghost moves when joining a game
-                    let _ = self.ui_tx.send(UiToNet::GetGhostMoves);
+                    println!("Game joined: {}, transitioning to Game view", game_id);
+                    
+                    // Get board size from the board widget
+                    let board_size = self.board_widget.get_board_size();
+                    let game_state = p2pgo_core::GameState::new(board_size);
+                    
+                    // Update network panel with game connection
+                    self.network_panel.update_game_connection(game_id.clone(), 1, true);
+                    
+                    // Transition directly to game view so creator sees the board
+                    self.current_view = View::Game {
+                        game_id,
+                        game_state,
+                        our_color: None, // Will be determined by first move
+                    };
+                    
+                    // Request initial ghost moves when joining a game if threshold met
+                    if self.config.games_finished >= 5 {
+                        let _ = self.ui_tx.send(UiToNet::GetGhostMoves);
+                    }
                 }
                 NetToUi::GameLeft => {
+                    // Remove game from network panel
+                    if let View::Game { game_id, .. } = &self.current_view {
+                        self.network_panel.remove_game_connection(game_id);
+                    }
                     self.current_view = View::default();
                 }
                 NetToUi::Error { message } => {
-                    self.error_logger.log(
-                        crate::error_logger::ErrorLevel::Error,
-                        "Network",
-                        &message,
-                    );
-                    self.error_msg = Some(message);
+                    // Check if this is the ghost moves error
+                    if message.contains("Ghost moves will be available") {
+                        // Only show this error once per session
+                        if !self.ghost_moves_error_shown {
+                            self.ghost_moves_error_shown = true;
+                            self.error_logger.log(
+                                crate::error_logger::ErrorLevel::Info,
+                                "Network",
+                                &message,
+                            );
+                            self.toast_manager.add_toast(&message, ToastType::Info);
+                        }
+                        // Don't set error_msg for ghost moves message
+                    } else {
+                        // For other errors, show as usual
+                        self.error_logger.log(
+                            crate::error_logger::ErrorLevel::Error,
+                            "Network",
+                            &message,
+                        );
+                        self.error_msg = Some(message);
+                    }
                 }
                 NetToUi::ConnectionStatus { .. } => {}
                 NetToUi::ShutdownAck => {
@@ -559,6 +606,18 @@ impl App {
                     // Update network panel with relay capacity info
                     self.network_panel.update_relay_capacity(current_connections, max_connections);
                 },
+                NetToUi::GameRestored { game_id, move_count } => {
+                    // Show toast notification that game was restored
+                    self.toast_manager.add_toast(
+                        format!("Restored game {} with {} moves", game_id, move_count),
+                        ToastType::Info,
+                    );
+                    tracing::info!("Game restored from snapshot: {} with {} moves", game_id, move_count);
+                },
+                NetToUi::ConnectionTestResults { results } => {
+                    // Update network panel with test results
+                    self.network_panel.update_test_results(results);
+                },
             }
         }
     }
@@ -670,18 +729,17 @@ impl App {
                         let is_stub = ticket == "loopback-ticket";
                         let relay_status = ticket.len() > 50;
                         
-                        let status_text = if is_stub {
-                            "Local Mode"
-                        } else if relay_status {
-                            "Network Ready"
-                        } else {
-                            "Initializing..."
-                        };
-                        
-                        ui.colored_label(
-                            if relay_status { egui::Color32::GREEN } else { egui::Color32::YELLOW },
-                            format!("Status: {}", status_text)
-                        );
+                        ui.horizontal(|ui| {
+                            if is_stub {
+                                ui.colored_label(egui::Color32::from_rgb(100, 100, 200), "Status: Local Mode");
+                            } else if relay_status {
+                                ui.colored_label(egui::Color32::GREEN, "Status: Network Ready");
+                            } else {
+                                // Show a spinner for initializing state
+                                ui.spinner();
+                                ui.label("Connecting to network...");
+                            }
+                        });
                     }
                     
                     ui.separator();
@@ -705,19 +763,16 @@ impl App {
     fn render_lobby(&mut self, ui: &mut egui::Ui) {
         if let View::Lobby { game_id, .. } = &self.current_view {
             ui.heading("Waiting for opponent...");
-            ui.label(format!("Game ID: {}", game_id));
+            ui.add_space(8.0);
+            
+            // Show game code with clear labeling
+            show_labeled_identifier(ui, IdentifierType::GameCode, game_id);
+            
+            ui.add_space(12.0);
             
             // Show ticket when available
             if let Some(ticket) = &self.current_ticket {
-                ui.horizontal(|ui| {
-                    ui.label("Your ticket:");
-                    ui.label(ticket);
-                    if ui.button("Copy").clicked() {
-                        if let Err(e) = self.clipboard_helper.copy_ticket(ticket, &mut self.toast_manager) {
-                            tracing::warn!("Failed to copy ticket: {}", e);
-                        }
-                    }
-                });
+                show_labeled_identifier(ui, IdentifierType::ConnectionTicket, ticket);
             }
             
             if ui.button("Leave Game").clicked() {
@@ -734,21 +789,42 @@ impl App {
                 data.insert_temp(egui::Id::new("current_game_id"), game_id.clone());
             });
             
-            let current_player = match game_state.current_player {
-                Color::Black => "Black",
-                Color::White => "White",
-            };
-            ui.label(format!("Current player: {}", current_player));
-            
-            if let Some(coord) = self.board_widget.render(ui, game_state, Some(&self.ui_tx)) {
+            // Center the board with minimal UI chrome
+            ui.vertical_centered(|ui| {
+                // Compact status bar at top
+                ui.horizontal(|ui| {
+                    let current_player = match game_state.current_player {
+                        Color::Black => "Black",
+                        Color::White => "White",
+                    };
+                    ui.label(format!("Current player: {}", current_player));
+                    
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        // Connection status on the right
+                        self.connection_status.show(ui);
+                    });
+                });
+                
+                ui.add_space(8.0);
+                
+                // Board takes center stage
+                if let Some(coord) = self.board_widget.render(ui, game_state, Some(&self.ui_tx)) {
+                let color = game_state.current_player;
                 let mv = Move::Place { 
                     x: coord.x, 
                     y: coord.y, 
-                    color: game_state.current_player 
+                    color 
                 };
+                
+                // Optimistic UI: Show move as pending immediately
+                self.board_widget.show_pending_move(coord, color);
+                
+                // Send move to network
                 let _ = self.ui_tx.send(UiToNet::MakeMove { mv, board_size: None });
-                // Request ghost moves after making a move
-                let _ = self.ui_tx.send(UiToNet::GetGhostMoves);
+                // Only request ghost moves if we have completed enough games
+                if self.config.games_finished >= 5 {
+                    let _ = self.ui_tx.send(UiToNet::GetGhostMoves);
+                }
             }
             
             // Render neural overlay on the board
@@ -763,19 +839,27 @@ impl App {
                 }
             }
             
-            ui.horizontal(|ui| {
-                if ui.button("Pass").clicked() {
-                    let _ = self.ui_tx.send(UiToNet::MakeMove { mv: Move::Pass, board_size: None });
-                    let _ = self.ui_tx.send(UiToNet::GetGhostMoves);
-                }
-                if ui.button("Resign").clicked() {
-                    let _ = self.ui_tx.send(UiToNet::MakeMove { mv: Move::Resign, board_size: None });
-                    let _ = self.ui_tx.send(UiToNet::GetGhostMoves);
-                }
-                if ui.button("Leave Game").clicked() {
-                    let _ = self.ui_tx.send(UiToNet::LeaveGame);
-                    let _ = self.ui_tx.send(UiToNet::Shutdown);
-                }
+                // Game controls at bottom
+                ui.add_space(8.0);
+                ui.horizontal(|ui| {
+                    if ui.button("Pass").clicked() {
+                        let _ = self.ui_tx.send(UiToNet::MakeMove { mv: Move::Pass, board_size: None });
+                        if self.config.games_finished >= 5 {
+                            let _ = self.ui_tx.send(UiToNet::GetGhostMoves);
+                        }
+                    }
+                    if ui.button("Resign").clicked() {
+                        let _ = self.ui_tx.send(UiToNet::MakeMove { mv: Move::Resign, board_size: None });
+                        if self.config.games_finished >= 5 {
+                            let _ = self.ui_tx.send(UiToNet::GetGhostMoves);
+                        }
+                    }
+                    ui.separator();
+                    if ui.button("Leave Game").clicked() {
+                        let _ = self.ui_tx.send(UiToNet::LeaveGame);
+                        let _ = self.ui_tx.send(UiToNet::Shutdown);
+                    }
+                });
             });
         }
     }
@@ -918,8 +1002,9 @@ impl App {
 
 impl eframe::App for App {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        // Apply the design system
-        get_design_system().apply_to_context(ctx);
+        // Apply the dark theme for better contrast
+        crate::dark_theme::apply_dark_theme(ctx);
+        crate::dark_theme::apply_compact_spacing(ctx);
         
         self.handle_network_messages();
         
@@ -969,10 +1054,12 @@ impl eframe::App for App {
             ui.horizontal(|ui| {
                 ui.label("P2P Go");
                 ui.separator();
-                self.network_panel.draw_status_badge(ui);
+                
+                // Show connection status widget
+                self.connection_status.show(ui);
+                ui.separator();
                 
                 // Add menu buttons
-                ui.separator();
                 if ui.button("🧠 Neural Training").clicked() {
                     self.show_neural_training = !self.show_neural_training;
                 }
@@ -1015,12 +1102,21 @@ impl eframe::App for App {
             }
             
             if self.show_ticket_modal {
-                egui::Window::new("Connect by Ticket")
+                egui::Window::new("🔑 Direct Connection")
                     .collapsible(false)
                     .resizable(false)
                     .show(ctx, |ui| {
-                        ui.label("Enter ticket to connect:");
-                        ui.text_edit_singleline(&mut self.ticket_input);
+                        ui.add_space(8.0);
+                        
+                        // Use the new labeled input
+                        show_labeled_input(
+                            ui, 
+                            IdentifierType::ConnectionTicket, 
+                            &mut self.ticket_input,
+                            "Paste connection ticket here..."
+                        );
+                        
+                        ui.add_space(12.0);
                         ui.horizontal(|ui| {
                             let connect_btn = ui.add_enabled(
                                 !self.ticket_input.trim().is_empty(),
@@ -1044,7 +1140,9 @@ impl eframe::App for App {
         });
         
         // Show network diagnostics panel
-        self.network_panel.show(ctx);
+        if let Some(action) = self.network_panel.show(ctx) {
+            let _ = self.ui_tx.send(action);
+        }
         
         // Show neural training UI window
         if self.show_neural_training {
@@ -1063,7 +1161,7 @@ impl eframe::App for App {
                         self.error_logger.log(
                             crate::error_logger::ErrorLevel::Info,
                             "NeuralTraining",
-                            &format!("Created training data with {} states", training_data.states().len()),
+                            "Created training data",
                         );
                     }
                 });

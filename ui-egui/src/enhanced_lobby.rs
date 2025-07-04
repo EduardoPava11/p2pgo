@@ -63,14 +63,14 @@ pub enum GoColor {
     White,
 }
 
-#[derive(Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum TimeControl {
     Blitz { minutes: u32, increment: u32 },
     Rapid { minutes: u32, increment: u32 },
     Correspondence { days_per_move: u32 },
 }
 
-#[derive(Default)]
+#[derive(Debug, Clone, Default)]
 pub struct QuickMatchPreferences {
     pub rank_range: u8, // ±N ranks
     pub time_control: Option<TimeControl>,

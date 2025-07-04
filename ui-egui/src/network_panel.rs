@@ -5,8 +5,10 @@
 use std::collections::HashMap;
 use std::time::Instant;
 use eframe::egui;
+use egui_plot::{Bar, BarChart, Line, Plot, PlotPoints};
 use petgraph::graph::{Graph, NodeIndex};
 use petgraph::Directed;
+use std::sync::Arc;
 
 #[cfg(feature = "iroh")]
 use p2pgo_network::relay_monitor::{RelayStats, RelayHealth, RelayHealthStatus, RelayHealthEvent};
@@ -30,6 +32,80 @@ impl Default for NetworkState {
     fn default() -> Self {
         NetworkState::Offline
     }
+}
+
+/// Connection quality metrics
+#[derive(Debug, Clone)]
+pub struct ConnectionQuality {
+    /// Packet loss rate (0.0 - 1.0)
+    pub packet_loss: f32,
+    /// Average latency in milliseconds
+    pub avg_latency: f32,
+    /// Minimum latency in milliseconds
+    pub min_latency: f32,
+    /// Maximum latency in milliseconds
+    pub max_latency: f32,
+    /// Jitter (latency variation) in milliseconds
+    pub jitter: f32,
+    /// Connection stability score (0.0 - 1.0)
+    pub stability: f32,
+    /// Last update time
+    pub last_update: Instant,
+}
+
+impl Default for ConnectionQuality {
+    fn default() -> Self {
+        Self {
+            packet_loss: 0.0,
+            avg_latency: 0.0,
+            min_latency: f32::MAX,
+            max_latency: 0.0,
+            jitter: 0.0,
+            stability: 1.0,
+            last_update: Instant::now(),
+        }
+    }
+}
+
+impl ConnectionQuality {
+    /// Update metrics with new latency measurement
+    pub fn update_latency(&mut self, latency: f32) {
+        self.min_latency = self.min_latency.min(latency);
+        self.max_latency = self.max_latency.max(latency);
+        
+        // Simple moving average
+        if self.avg_latency == 0.0 {
+            self.avg_latency = latency;
+        } else {
+            self.avg_latency = self.avg_latency * 0.9 + latency * 0.1;
+        }
+        
+        // Calculate jitter as absolute difference from average
+        self.jitter = (latency - self.avg_latency).abs();
+        
+        self.last_update = Instant::now();
+    }
+    
+    /// Get overall quality score (0.0 - 1.0)
+    pub fn quality_score(&self) -> f32 {
+        // Score based on latency, packet loss, and jitter
+        let latency_score = (1.0 - (self.avg_latency / 500.0).min(1.0)).max(0.0);
+        let loss_score = 1.0 - self.packet_loss;
+        let jitter_score = (1.0 - (self.jitter / 100.0).min(1.0)).max(0.0);
+        
+        // Weighted average
+        (latency_score * 0.4 + loss_score * 0.4 + jitter_score * 0.2) * self.stability
+    }
+}
+
+/// Game connection info
+#[derive(Debug, Clone)]
+pub struct GameConnectionInfo {
+    pub game_id: String,
+    pub peer_count: usize,
+    pub move_latency: Option<f32>,
+    pub last_sync: Instant,
+    pub is_synced: bool,
 }
 
 /// Network diagnostics panel
@@ -68,6 +144,26 @@ pub struct NetworkPanel {
     // Relay capacity info
     relay_active_connections: Option<usize>,
     relay_connection_limit: Option<usize>,
+    
+    // Connection quality tracking
+    connection_quality: ConnectionQuality,
+    
+    // Game connection tracking
+    game_connections: HashMap<String, GameConnectionInfo>,
+    
+    // Diagnostic state
+    show_diagnostics_tab: DiagnosticsTab,
+    connection_test_in_progress: bool,
+    last_connection_test: Option<Instant>,
+    test_results: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+enum DiagnosticsTab {
+    Overview,
+    ConnectionQuality,
+    GameNetwork,
+    Troubleshooting,
 }
 
 impl Default for NetworkPanel {
@@ -102,6 +198,12 @@ impl NetworkPanel {
             restart_network_requested: false,
             relay_active_connections: None,
             relay_connection_limit: None,
+            connection_quality: ConnectionQuality::default(),
+            game_connections: HashMap::new(),
+            show_diagnostics_tab: DiagnosticsTab::Overview,
+            connection_test_in_progress: false,
+            last_connection_test: None,
+            test_results: Vec::new(),
         }
     }
     
@@ -130,7 +232,7 @@ impl NetworkPanel {
                 let now = Instant::now();
                 let elapsed = now.duration_since(self.last_update).as_secs_f64();
                 
-                // Update latency history
+                // Update latency history and connection quality
                 for (addr, stat) in stats.iter() {
                     if let Some(latency) = stat.latency_ms {
                         let entry = self.latency_history.entry(addr.clone()).or_insert_with(Vec::new);
@@ -140,6 +242,15 @@ impl NetworkPanel {
                         while entry.len() > 1 && entry[0].0 < elapsed - 300.0 {
                             entry.remove(0);
                         }
+                        
+                        // Update connection quality metrics
+                        self.connection_quality.update_latency(latency as f32);
+                    }
+                    
+                    // Update packet loss estimate based on success rate
+                    if stat.total_probes > 0 {
+                        let success_rate = stat.success_rate() / 100.0;
+                        self.connection_quality.packet_loss = 1.0 - success_rate as f32;
                     }
                 }
                 
@@ -269,35 +380,41 @@ impl NetworkPanel {
     }
     
     /// Show the full network diagnostics window
-    pub fn show(&mut self, ctx: &egui::Context) {
+    pub fn show(&mut self, ctx: &egui::Context) -> Option<crate::msg::UiToNet> {
         if !self.visible {
-            return;
+            return None;
         }
         
+        let mut action = None;
         let mut visible = self.visible;
         egui::Window::new("Network Diagnostics")
             .open(&mut visible)
             .resizable(true)
             .default_size([800.0, 600.0])
             .show(ctx, |ui| {
-                self.draw_content(ui);
+                action = self.draw_content(ui);
             });
         self.visible = visible;
+        action
     }
     
-    fn draw_content(&mut self, ui: &mut egui::Ui) {
+    fn draw_content(&mut self, ui: &mut egui::Ui) -> Option<crate::msg::UiToNet> {
         ui.horizontal(|ui| {
-            ui.selectable_value(&mut self.show_relay_details, false, "Overview");
-            ui.selectable_value(&mut self.show_relay_details, true, "Relay Details");
+            ui.selectable_value(&mut self.show_diagnostics_tab, DiagnosticsTab::Overview, "Overview");
+            ui.selectable_value(&mut self.show_diagnostics_tab, DiagnosticsTab::ConnectionQuality, "Connection Quality");
+            ui.selectable_value(&mut self.show_diagnostics_tab, DiagnosticsTab::GameNetwork, "Game Network");
+            ui.selectable_value(&mut self.show_diagnostics_tab, DiagnosticsTab::Troubleshooting, "Troubleshooting");
         });
         
         ui.separator();
         
-        if self.show_relay_details {
-            self.draw_relay_details(ui);
-        } else {
-            self.draw_overview(ui);
+        match self.show_diagnostics_tab {
+            DiagnosticsTab::Overview => self.draw_overview(ui),
+            DiagnosticsTab::ConnectionQuality => self.draw_connection_quality(ui),
+            DiagnosticsTab::GameNetwork => self.draw_game_network(ui),
+            DiagnosticsTab::Troubleshooting => return self.draw_troubleshooting(ui),
         }
+        None
     }
     
     fn draw_overview(&mut self, ui: &mut egui::Ui) {
@@ -444,6 +561,274 @@ impl NetworkPanel {
         {
             ui.label("Network diagnostics not available in stub mode.");
         }
+    }
+    
+    fn draw_connection_quality(&mut self, ui: &mut egui::Ui) {
+        ui.heading("Connection Quality Metrics");
+        
+        // Quality score indicator
+        let quality_score = self.connection_quality.quality_score();
+        let quality_color = match quality_score {
+            s if s >= 0.8 => egui::Color32::from_rgb(0, 158, 115), // Green
+            s if s >= 0.5 => egui::Color32::from_rgb(230, 159, 0), // Orange
+            _ => egui::Color32::from_rgb(213, 94, 0), // Red
+        };
+        
+        ui.horizontal(|ui| {
+            ui.label("Overall Quality:");
+            ui.add(egui::ProgressBar::new(quality_score)
+                .fill(quality_color)
+                .desired_width(200.0)
+                .text(format!("{:.0}%", quality_score * 100.0)));
+        });
+        
+        ui.add_space(10.0);
+        
+        // Detailed metrics
+        egui::Grid::new("quality_metrics")
+            .striped(true)
+            .show(ui, |ui| {
+                ui.strong("Metric");
+                ui.strong("Value");
+                ui.strong("Status");
+                ui.end_row();
+                
+                // Latency
+                ui.label("Average Latency");
+                ui.label(format!("{:.1} ms", self.connection_quality.avg_latency));
+                ui.label(if self.connection_quality.avg_latency < 100.0 { "🟢" } else if self.connection_quality.avg_latency < 200.0 { "🟠" } else { "🔴" });
+                ui.end_row();
+                
+                ui.label("Min/Max Latency");
+                ui.label(format!("{:.1} / {:.1} ms", 
+                    if self.connection_quality.min_latency == f32::MAX { 0.0 } else { self.connection_quality.min_latency },
+                    self.connection_quality.max_latency));
+                ui.label("");
+                ui.end_row();
+                
+                // Jitter
+                ui.label("Jitter");
+                ui.label(format!("{:.1} ms", self.connection_quality.jitter));
+                ui.label(if self.connection_quality.jitter < 20.0 { "🟢" } else if self.connection_quality.jitter < 50.0 { "🟠" } else { "🔴" });
+                ui.end_row();
+                
+                // Packet loss
+                ui.label("Packet Loss");
+                ui.label(format!("{:.1}%", self.connection_quality.packet_loss * 100.0));
+                ui.label(if self.connection_quality.packet_loss < 0.01 { "🟢" } else if self.connection_quality.packet_loss < 0.05 { "🟠" } else { "🔴" });
+                ui.end_row();
+                
+                // Stability
+                ui.label("Connection Stability");
+                ui.label(format!("{:.0}%", self.connection_quality.stability * 100.0));
+                ui.label(if self.connection_quality.stability > 0.9 { "🟢" } else if self.connection_quality.stability > 0.7 { "🟠" } else { "🔴" });
+                ui.end_row();
+            });
+        
+        ui.add_space(10.0);
+        
+        // Recommendations
+        ui.collapsing("Recommendations", |ui| {
+            if self.connection_quality.avg_latency > 200.0 {
+                ui.label("⚠️ High latency detected. Consider:");
+                ui.label("  • Connecting to a closer relay");
+                ui.label("  • Checking your internet connection");
+            }
+            
+            if self.connection_quality.packet_loss > 0.05 {
+                ui.label("⚠️ Significant packet loss detected. Consider:");
+                ui.label("  • Switching from WiFi to wired connection");
+                ui.label("  • Checking for network congestion");
+            }
+            
+            if self.connection_quality.jitter > 50.0 {
+                ui.label("⚠️ High jitter detected. This may cause:");
+                ui.label("  • Inconsistent move timing");
+                ui.label("  • Unpredictable game experience");
+            }
+            
+            if quality_score >= 0.8 {
+                ui.label("✅ Your connection quality is excellent!");
+            }
+        });
+    }
+    
+    fn draw_game_network(&mut self, ui: &mut egui::Ui) {
+        ui.heading("Game Network Status");
+        
+        if self.game_connections.is_empty() {
+            ui.label("No active game connections");
+            return;
+        }
+        
+        // Active games table
+        egui::ScrollArea::vertical().show(ui, |ui| {
+            egui::Grid::new("game_connections")
+                .striped(true)
+                .show(ui, |ui| {
+                    ui.strong("Game ID");
+                    ui.strong("Peers");
+                    ui.strong("Move Latency");
+                    ui.strong("Sync Status");
+                    ui.strong("Last Sync");
+                    ui.end_row();
+                    
+                    for (_, game_info) in &self.game_connections {
+                        // Shortened game ID
+                        let short_id = if game_info.game_id.len() > 12 {
+                            format!("{}...", &game_info.game_id[..12])
+                        } else {
+                            game_info.game_id.clone()
+                        };
+                        
+                        ui.label(short_id);
+                        ui.label(format!("{}", game_info.peer_count));
+                        
+                        if let Some(latency) = game_info.move_latency {
+                            ui.label(format!("{:.0} ms", latency));
+                        } else {
+                            ui.label("--");
+                        }
+                        
+                        if game_info.is_synced {
+                            ui.label("✅ Synced");
+                        } else {
+                            ui.label("🔄 Syncing");
+                        }
+                        
+                        let elapsed = game_info.last_sync.elapsed().as_secs();
+                        ui.label(format!("{} sec ago", elapsed));
+                        
+                        ui.end_row();
+                    }
+                });
+        });
+        
+        ui.add_space(10.0);
+        
+        // Game network stats summary
+        ui.collapsing("Network Statistics", |ui| {
+            let total_games = self.game_connections.len();
+            let synced_games = self.game_connections.values().filter(|g| g.is_synced).count();
+            let avg_move_latency = self.game_connections.values()
+                .filter_map(|g| g.move_latency)
+                .fold(0.0, |acc, l| acc + l) / total_games.max(1) as f32;
+            
+            ui.label(format!("Total active games: {}", total_games));
+            ui.label(format!("Fully synced: {}/{}", synced_games, total_games));
+            ui.label(format!("Average move latency: {:.0} ms", avg_move_latency));
+        });
+    }
+    
+    fn draw_troubleshooting(&mut self, ui: &mut egui::Ui) -> Option<crate::msg::UiToNet> {
+        let mut action = None;
+        
+        ui.heading("Network Troubleshooting");
+        
+        // Connection test
+        ui.group(|ui| {
+            ui.heading("Connection Test");
+            
+            ui.horizontal(|ui| {
+                let test_enabled = !self.connection_test_in_progress && 
+                    (self.last_connection_test.is_none() || 
+                     self.last_connection_test.unwrap().elapsed().as_secs() > 10);
+                
+                if ui.add_enabled(test_enabled, egui::Button::new("Run Connection Test")).clicked() {
+                    self.connection_test_in_progress = true;
+                    self.test_results.clear();
+                    self.test_results.push("Starting connection test...".to_string());
+                    action = Some(crate::msg::UiToNet::RunConnectionTest);
+                }
+                
+                if self.connection_test_in_progress {
+                    ui.spinner();
+                }
+            });
+            
+            if !self.test_results.is_empty() {
+                ui.separator();
+                egui::ScrollArea::vertical()
+                    .max_height(200.0)
+                    .show(ui, |ui| {
+                        for result in &self.test_results {
+                            ui.label(result);
+                        }
+                    });
+            }
+        });
+        
+        ui.add_space(10.0);
+        
+        // Diagnostic export
+        ui.group(|ui| {
+            ui.heading("Diagnostic Export");
+            ui.label("Export network diagnostics for troubleshooting");
+            
+            if ui.button("Export Diagnostics").clicked() {
+                // TODO: Implement diagnostic export
+                ui.ctx().output_mut(|o| o.copied_text = self.generate_diagnostic_report());
+            }
+            
+            ui.label("📋 Diagnostics copied to clipboard");
+        });
+        
+        ui.add_space(10.0);
+        
+        // Common issues
+        ui.collapsing("Common Issues & Solutions", |ui| {
+            ui.strong("Can't connect to relay:");
+            ui.label("• Check your firewall settings");
+            ui.label("• Ensure port 4001 is not blocked");
+            ui.label("• Try restarting the network");
+            ui.add_space(5.0);
+            
+            ui.strong("High latency:");
+            ui.label("• Connect to a geographically closer relay");
+            ui.label("• Check for bandwidth-intensive applications");
+            ui.label("• Consider using a wired connection");
+            ui.add_space(5.0);
+            
+            ui.strong("Game sync issues:");
+            ui.label("• Ensure all players have stable connections");
+            ui.label("• Check if game persistence is enabled");
+            ui.label("• Try rejoining the game");
+        });
+        
+        action
+    }
+    
+    fn generate_diagnostic_report(&self) -> String {
+        let mut report = String::new();
+        report.push_str("P2P Go Network Diagnostics Report\n");
+        report.push_str("================================\n\n");
+        
+        // Network state
+        report.push_str(&format!("Network State: {:?}\n", self.network_state));
+        report.push_str(&format!("Is Relay Node: {}\n", self.is_relay_node));
+        if let Some(port) = self.relay_port {
+            report.push_str(&format!("Relay Port: {}\n", port));
+        }
+        
+        // Connection quality
+        report.push_str("\nConnection Quality:\n");
+        report.push_str(&format!("  Average Latency: {:.1} ms\n", self.connection_quality.avg_latency));
+        report.push_str(&format!("  Packet Loss: {:.1}%\n", self.connection_quality.packet_loss * 100.0));
+        report.push_str(&format!("  Jitter: {:.1} ms\n", self.connection_quality.jitter));
+        report.push_str(&format!("  Quality Score: {:.0}%\n", self.connection_quality.quality_score() * 100.0));
+        
+        // Game connections
+        report.push_str(&format!("\nActive Games: {}\n", self.game_connections.len()));
+        
+        // Test results if any
+        if !self.test_results.is_empty() {
+            report.push_str("\nLast Connection Test:\n");
+            for result in &self.test_results {
+                report.push_str(&format!("  {}\n", result));
+            }
+        }
+        
+        report
     }
     
     /// Draw the advanced networking UI panel
@@ -708,6 +1093,41 @@ impl NetworkPanel {
         response.response.on_hover_ui(|ui| {
             ui.label(self.get_network_tooltip());
         });
+    }
+    
+    /// Update game connection info
+    pub fn update_game_connection(&mut self, game_id: String, peer_count: usize, is_synced: bool) {
+        let entry = self.game_connections.entry(game_id.clone()).or_insert(GameConnectionInfo {
+            game_id,
+            peer_count,
+            move_latency: None,
+            last_sync: Instant::now(),
+            is_synced,
+        });
+        
+        entry.peer_count = peer_count;
+        entry.is_synced = is_synced;
+        entry.last_sync = Instant::now();
+    }
+    
+    /// Update move latency for a game
+    pub fn update_move_latency(&mut self, game_id: &str, latency: f32) {
+        if let Some(game_info) = self.game_connections.get_mut(game_id) {
+            game_info.move_latency = Some(latency);
+            game_info.last_sync = Instant::now();
+        }
+    }
+    
+    /// Remove a game connection
+    pub fn remove_game_connection(&mut self, game_id: &str) {
+        self.game_connections.remove(game_id);
+    }
+    
+    /// Update connection test results
+    pub fn update_test_results(&mut self, results: Vec<String>) {
+        self.test_results = results;
+        self.connection_test_in_progress = false;
+        self.last_connection_test = Some(Instant::now());
     }
     
     /// Get detailed tooltip for network status

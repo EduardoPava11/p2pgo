@@ -17,7 +17,7 @@ pub struct BootstrapStatus {
     nat_status: NATStatus,
 }
 
-#[derive(Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub enum BootstrapPhase {
     NotStarted,
     Initializing,
@@ -151,7 +151,7 @@ impl BootstrapStatus {
                 };
                 
                 ui.colored_label(color, if is_complete { "✓" } else { "○" });
-                ui.label(name);
+                ui.label(*name);
                 
                 // Connector line
                 if i < phases.len() - 1 {

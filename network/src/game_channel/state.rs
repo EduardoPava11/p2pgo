@@ -388,28 +388,14 @@ pub async fn process_received_move_direct(
 // Basic snapshot functionality for non-iroh builds  
 #[cfg(not(feature = "iroh"))]
 async fn check_snapshot_needed_basic(channel: &GameChannel) -> bool {
-    const MOVES_THRESHOLD: u32 = 10;
-    const TIME_THRESHOLD_SECS: u64 = 30;
-    
-    let moves_count = {
-        let moves = channel.moves_since_snapshot.read().await;
-        *moves
-    };
-    
-    let elapsed = {
-        let last_time = channel.last_snapshot_time.read().await;
-        last_time.elapsed()
-    };
-    
-    // Write snapshot if we've made MOVES_THRESHOLD moves or TIME_THRESHOLD_SECS seconds have passed
-    moves_count >= MOVES_THRESHOLD || elapsed.as_secs() >= TIME_THRESHOLD_SECS
+    // Use the storage module to check if snapshot is needed even in non-iroh mode
+    super::storage::check_snapshot_needed(channel).await
 }
 
 #[cfg(not(feature = "iroh"))]
-async fn write_snapshot_basic(_channel: &GameChannel) -> Result<()> {
-    // Basic snapshot implementation - just log for now
-    tracing::debug!("Snapshot write requested (basic implementation)");
-    Ok(())
+async fn write_snapshot_basic(channel: &GameChannel) -> Result<()> {
+    // Use the storage module to write snapshots even in non-iroh mode
+    super::storage::write_snapshot(channel).await
 }
 
 // Test helpers

@@ -48,6 +48,10 @@ chrono = { version = "0.4", features = ["serde"] }
 # Utils
 uuid = { version = "1.6", features = ["v4"] }
 hex = "0.4"
+
+# Health checks
+warp = "0.3"
+sys-info = "0.9"
 base64 = "0.21"
 bytes = "1"
 rand = "0.8"

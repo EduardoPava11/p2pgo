@@ -26,6 +26,7 @@ pub mod burn_engine;
 pub mod training_pipeline;
 pub mod ko_detector;
 pub mod ko_generator;
+pub mod logging;
 
 use serde::{Serialize, Deserialize};
 use thiserror::Error;

@@ -32,6 +32,10 @@ pub mod neural_marketplace;
 pub mod blob_store;
 pub mod relay_monitor;
 pub mod guilds;
+pub mod health;
+pub mod message_security;
+pub mod connection_manager;
+pub mod relay_robustness;
 
 // Type aliases
 pub type GameId = String;

@@ -22,6 +22,18 @@ pub enum RelayHealthStatus {
     Failed,
 }
 
+impl std::fmt::Display for RelayHealthStatus {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            RelayHealthStatus::Healthy => write!(f, "Healthy"),
+            RelayHealthStatus::Degraded => write!(f, "Degraded"),
+            RelayHealthStatus::Unreachable => write!(f, "Unreachable"),
+            RelayHealthStatus::Restarting => write!(f, "Restarting"),
+            RelayHealthStatus::Failed => write!(f, "Failed"),
+        }
+    }
+}
+
 /// Health event for relay service monitoring
 #[derive(Debug, Clone)]
 pub struct RelayHealthEvent {

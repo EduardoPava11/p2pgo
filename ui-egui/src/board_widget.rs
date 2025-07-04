@@ -7,6 +7,9 @@ use p2pgo_core::{GameState, Color, Coord, Tag};
 use crossbeam_channel::Sender;
 use crate::msg::UiToNet;
 use crate::design_system::get_design_system;
+use crate::stone_animation::{AnimationManager, StoneAnimation, AnimationType};
+use crate::sound_manager::{SoundManager, SoundEffect};
+use std::time::{Duration, Instant};
 
 /// Widget for rendering and interacting with a Go board
 pub struct BoardWidget {
@@ -18,6 +21,14 @@ pub struct BoardWidget {
     tag_palette: Option<Tag>,
     /// Ghost stones (AI suggestions) to display
     ghost_stones: Vec<Coord>,
+    /// Animation manager
+    animation_manager: AnimationManager,
+    /// Sound manager
+    sound_manager: SoundManager,
+    /// Current hover position
+    hover_pos: Option<Coord>,
+    /// Last move position for highlighting
+    last_move: Option<Coord>,
 }
 
 impl BoardWidget {
@@ -27,6 +38,10 @@ impl BoardWidget {
             cell_size: 30.0,
             tag_palette: None,
             ghost_stones: Vec::new(),
+            animation_manager: AnimationManager::new(),
+            sound_manager: SoundManager::new(),
+            hover_pos: None,
+            last_move: None,
         }
     }
 
@@ -34,13 +49,99 @@ impl BoardWidget {
     pub fn get_board_size(&self) -> u8 {
         self.board_size
     }
+    
+    /// Check if a move is valid (basic client-side validation)
+    pub fn is_valid_move(&self, coord: Coord, game_state: &GameState) -> bool {
+        // Check bounds
+        if coord.x >= self.board_size || coord.y >= self.board_size {
+            return false;
+        }
+        
+        // Check if position is empty
+        let idx = (coord.y as usize) * (game_state.board_size as usize) + (coord.x as usize);
+        if game_state.board.get(idx).and_then(|c| *c).is_some() {
+            return false;
+        }
+        
+        // TODO: Add ko rule validation
+        // TODO: Add suicide rule validation
+        
+        true
+    }
+    
+    /// Add a stone placement animation
+    pub fn animate_stone_placement(&mut self, coord: Coord, color: Color) {
+        // Add placement animation
+        let animation = StoneAnimation::new_placement(coord, color);
+        self.animation_manager.add_animation(animation);
+        
+        // Play sound
+        self.sound_manager.play_stone_placement(color == Color::Black);
+        
+        // Update last move
+        self.last_move = Some(coord);
+    }
+    
+    /// Add a capture animation for removed stones
+    pub fn animate_captures(&mut self, captured_coords: Vec<Coord>, color: Color) {
+        let has_captures = !captured_coords.is_empty();
+        
+        for coord in captured_coords {
+            let animation = StoneAnimation::new_capture(coord, color);
+            self.animation_manager.add_animation(animation);
+        }
+        
+        if has_captures {
+            self.sound_manager.play(SoundEffect::StoneCapture);
+        }
+    }
+    
+    /// Show move as pending network confirmation
+    pub fn show_pending_move(&mut self, coord: Coord, color: Color) {
+        let animation = StoneAnimation::new_pending(coord, color);
+        self.animation_manager.add_animation(animation);
+    }
+    
+    /// Animate a rejected move
+    pub fn animate_rejected_move(&mut self, coord: Coord, color: Color) {
+        // Replace pending with rejection animation
+        let animation = StoneAnimation {
+            coord,
+            color,
+            start_time: std::time::Instant::now(),
+            duration: std::time::Duration::from_millis(500),
+            animation_type: AnimationType::Rejected,
+            progress: 0.0,
+        };
+        self.animation_manager.add_animation(animation);
+        
+        // Play error sound
+        self.sound_manager.play(SoundEffect::IllegalMove);
+    }
 
     /// Render the board and return clicked coordinate if any
     pub fn render(&mut self, ui: &mut egui::Ui, game_state: &GameState, ui_tx: Option<&Sender<UiToNet>>) -> Option<Coord> {
-        let board_pixel_size = self.cell_size * (self.board_size as f32 - 1.0);
-        let desired_size = Vec2::splat(board_pixel_size + 40.0); // Extra space for margins
+        // Update animations
+        self.animation_manager.update();
+        if self.animation_manager.has_animations() {
+            ui.ctx().request_repaint();
+        }
         
-        let (rect, response) = ui.allocate_exact_size(desired_size, egui::Sense::click());
+        // Calculate optimal cell size based on available space
+        let available_size = ui.available_size();
+        let margin = 60.0; // Total margin for board edges
+        let max_board_size = available_size.min_elem() * 0.85; // Use 85% of available space
+        
+        // Calculate cell size dynamically
+        self.cell_size = (max_board_size - margin) / (self.board_size as f32 - 1.0);
+        
+        // Ensure minimum and maximum cell sizes for usability
+        self.cell_size = self.cell_size.clamp(25.0, 60.0);
+        
+        let board_pixel_size = self.cell_size * (self.board_size as f32 - 1.0);
+        let desired_size = Vec2::splat(board_pixel_size + margin);
+        
+        let (rect, response) = ui.allocate_exact_size(desired_size, egui::Sense::click_and_drag());
         
         if ui.is_rect_visible(rect) {
             self.paint_board(ui, rect, game_state);
@@ -64,6 +165,13 @@ impl BoardWidget {
         }
         if ui.input(|i| i.key_pressed(egui::Key::Escape)) {
             self.tag_palette = None;
+        }
+        
+        // Handle hover - removed hover animations to reduce glitches
+        if let Some(hover_pos) = response.hover_pos() {
+            self.hover_pos = self.pos_to_coord(hover_pos, rect);
+        } else {
+            self.hover_pos = None;
         }
         
         // Handle clicks
@@ -141,11 +249,20 @@ impl BoardWidget {
                         return None; // Don't return coordinate for tag popup
                     }
                     
-                    // Send debug event for testing
-                    if let Some(tx) = ui_tx {
-                        let _ = tx.send(UiToNet::DebugMovePlaced(coord));
+                    // Validate move before returning
+                    if self.is_valid_move(coord, game_state) {
+                        // Send debug event for testing
+                        if let Some(tx) = ui_tx {
+                            let _ = tx.send(UiToNet::DebugMovePlaced(coord));
+                        }
+                        return Some(coord);
+                    } else {
+                        // Invalid move - play error sound
+                        self.sound_manager.play(SoundEffect::IllegalMove);
+                        // Could show a toast here if we had access to toast manager
+                        tracing::debug!("Invalid move attempted at {:?}", coord);
+                        return None;
                     }
-                    return Some(coord);
                 }
             }
         }
@@ -226,6 +343,67 @@ impl BoardWidget {
                     painter.circle_stroke(pos, stone_radius, Stroke::new(1.0, ds.colors.grid_line));
                 }
             }
+        }
+        
+        // Draw animated stones
+        for animation in self.animation_manager.get_animations() {
+            let base_pos = self.coord_to_pos(animation.coord, board_rect);
+            let transform = animation.get_transform(base_pos, stone_radius);
+            
+            // Draw ripple effect for placement animations
+            if let Some(ripple) = animation.get_ripple() {
+                let ripple_color = match animation.color {
+                    Color::Black => Color32::from_rgba_unmultiplied(0, 0, 0, (ripple.opacity * 255.0) as u8),
+                    Color::White => Color32::from_rgba_unmultiplied(255, 255, 255, (ripple.opacity * 255.0) as u8),
+                };
+                painter.circle_stroke(
+                    base_pos,
+                    stone_radius * ripple.radius_factor,
+                    Stroke::new(2.0, ripple_color),
+                );
+            }
+            
+            // Draw the animated stone
+            let stone_color = match animation.color {
+                Color::Black => {
+                    let base = ds.colors.black_stone;
+                    Color32::from_rgba_unmultiplied(
+                        base.r(),
+                        base.g(),
+                        base.b(),
+                        (base.a() as f32 * transform.opacity) as u8,
+                    )
+                }
+                Color::White => {
+                    let base = ds.colors.white_stone;
+                    Color32::from_rgba_unmultiplied(
+                        base.r(),
+                        base.g(),
+                        base.b(),
+                        (base.a() as f32 * transform.opacity) as u8,
+                    )
+                }
+            };
+            
+            // Apply scale and rotation if needed
+            let animated_radius = stone_radius * transform.scale;
+            painter.circle_filled(transform.position, animated_radius, stone_color);
+            
+            // Stone border
+            if transform.opacity > 0.1 {
+                painter.circle_stroke(
+                    transform.position,
+                    animated_radius,
+                    Stroke::new(1.0, ds.colors.grid_line.linear_multiply(transform.opacity)),
+                );
+            }
+        }
+        
+        // Draw last move indicator
+        if let Some(last_coord) = self.last_move {
+            let pos = self.coord_to_pos(last_coord, board_rect);
+            let indicator_color = Color32::from_rgb(220, 38, 38); // Red
+            painter.circle_stroke(pos, stone_radius * 0.6, Stroke::new(2.0, indicator_color));
         }
         
         // Draw ghost stones (AI suggestions) with 50% alpha

@@ -50,7 +50,7 @@ libp2p = { version = "0.53", features = ["kad", "gossipsub", "relay"] }
 # Internal crates
 p2pgo-core = { path = "../core" }
 p2pgo-network = { path = "../network" }
-p2pgo-neural = { path = "../neural" }
+# p2pgo-neural = { path = "../neural" }
 trainer = { path = "../trainer" }
 # Logging
 flexi_logger = { version = "0.25", features = ["async", "compress"] }

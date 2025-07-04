@@ -85,7 +85,7 @@ impl ErrorLogger {
             level,
             component: component.to_string(),
             message: message.to_string(),
-            context,
+            context: context.clone(),
             stack_trace,
         };
         
@@ -380,18 +380,24 @@ impl ErrorLogViewer {
     }
 }
 
-/// Global error logger instance
-static mut ERROR_LOGGER: Option<ErrorLogger> = None;
-static LOGGER_INIT: std::sync::Once = std::sync::Once::new();
+/// Global error logger instance using thread-safe pattern
+use once_cell::sync::Lazy;
+use std::sync::Mutex;
+
+static ERROR_LOGGER: Lazy<Mutex<ErrorLogger>> = Lazy::new(|| {
+    Mutex::new(ErrorLogger::new())
+});
 
 /// Get global error logger
-pub fn get_error_logger() -> &'static mut ErrorLogger {
-    unsafe {
-        LOGGER_INIT.call_once(|| {
-            ERROR_LOGGER = Some(ErrorLogger::new());
-        });
-        ERROR_LOGGER.as_mut().unwrap()
-    }
+pub fn with_error_logger<F, R>(f: F) -> R
+where
+    F: FnOnce(&mut ErrorLogger) -> R,
+{
+    let mut logger = ERROR_LOGGER.lock().unwrap_or_else(|e| {
+        // If lock is poisoned, recover by creating new mutex
+        e.into_inner()
+    });
+    f(&mut *logger)
 }
 
 /// Convenience logging macros

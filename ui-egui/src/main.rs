@@ -81,6 +81,17 @@ mod ui_config;
 mod offline_game;
 mod go3d;
 mod go3d_wireframe;
+mod neural_placeholder;
+mod error_logger;
+mod design_system;
+mod dark_theme;
+mod lobby;
+mod bootstrap_status;
+mod enhanced_lobby;
+mod connection_status;
+mod labeled_input;
+mod stone_animation;
+mod sound_manager;
 
 use crate::app::App;
 use msg::{UiToNet, NetToUi};
@@ -114,12 +125,12 @@ fn main() -> anyhow::Result<()> {
     let args = Args::parse();
     
     // Initialize crash logger asynchronously
-    let rt = tokio::runtime::Runtime::new()?;
-    rt.block_on(async {
-        if let Err(e) = p2pgo_network::init_crash_logger().await {
-            eprintln!("Warning: Failed to initialize crash logger: {}", e);
-        }
-    });
+    // let rt = tokio::runtime::Runtime::new()?;
+    // rt.block_on(async {
+    //     if let Err(e) = p2pgo_network::init_crash_logger().await {
+    //         eprintln!("Warning: Failed to initialize crash logger: {}", e);
+    //     }
+    // });
     
     // Setup global panic handler
     std::panic::set_hook(Box::new(|panic_info| {
@@ -131,11 +142,11 @@ fn main() -> anyhow::Result<()> {
         let context_clone = context.clone();
         
         // Log the crash asynchronously
-        tokio::spawn(async move {
-            if let Err(e) = p2pgo_network::log_crash(&error_clone, &context_clone).await {
-                eprintln!("Failed to log crash: {}", e);
-            }
-        });
+        // tokio::spawn(async move {
+        //     if let Err(e) = p2pgo_network::log_crash(&error_clone, &context_clone).await {
+        //         eprintln!("Failed to log crash: {}", e);
+        //     }
+        // });
         
         eprintln!("PANIC: {}", error);
     }));
