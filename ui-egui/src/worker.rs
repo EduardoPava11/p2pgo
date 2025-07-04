@@ -130,7 +130,7 @@ impl NetworkWorker {
         let lobby_rx = lobby.subscribe();
         
         // Initialize the iroh context
-        let iroh_ctx = IrohCtx::new().await?;
+        let iroh_ctx = IrohCtx::new();
         
         // Get and send the local node ID to UI
         let node_id = iroh_ctx.node_id().to_string();
@@ -139,7 +139,8 @@ impl NetworkWorker {
         // In iroh mode, generate a ticket on startup
         #[cfg(feature = "iroh")]
         {
-            if let Ok(ticket) = iroh_ctx.ticket().await {
+            {
+                let ticket = iroh_ctx.ticket();
                 ui_tx.send(NetToUi::Ticket { ticket })?;
             }
         }
@@ -247,16 +248,8 @@ impl NetworkWorker {
                                 let _ = self.ui_tx.send(NetToUi::NodeId { node_id });
                             }
                             UiToNet::GetTicket => {
-                                match self.iroh_ctx.ticket().await {
-                                    Ok(ticket) => {
-                                        let _ = self.ui_tx.send(NetToUi::Ticket { ticket });
-                                    }
-                                    Err(e) => {
-                                        let _ = self.ui_tx.send(NetToUi::Error { 
-                                            message: format!("Failed to generate ticket: {}", e) 
-                                        });
-                                    }
-                                }
+                                let ticket = self.iroh_ctx.ticket();
+                                let _ = self.ui_tx.send(NetToUi::Ticket { ticket });
                             }
                             UiToNet::RunNetReport => {
                                 // For now, just return a simple report showing node ID
@@ -279,6 +272,20 @@ impl NetworkWorker {
                                 // Update default board size in worker
                                 self.default_board_size = board_size;
                                 tracing::info!("Default board size updated to {}", board_size);
+                            }
+                            UiToNet::SaveConfigAndRestart { config_json } => {
+                                // TODO: Save config and restart network
+                                tracing::info!("Save config and restart requested: {:.100}...", config_json);
+                                let _ = self.ui_tx.send(NetToUi::NetRestarting { 
+                                    reason: "Configuration updated".to_string() 
+                                });
+                            }
+                            UiToNet::RestartNetwork => {
+                                // TODO: Restart network
+                                tracing::info!("Network restart requested");
+                                let _ = self.ui_tx.send(NetToUi::NetRestarting { 
+                                    reason: "Manual restart requested".to_string() 
+                                });
                             }
                         }
                     }
@@ -377,10 +384,9 @@ impl NetworkWorker {
                         let _ = self.ui_tx.send(NetToUi::GameJoined { game_id: game_id.clone() });
                         
                         // Immediately generate and send ticket for easy sharing
-                        if let Ok(ticket) = self.iroh_ctx.ticket().await {
-                            let _ = self.ui_tx.send(NetToUi::Ticket { ticket: ticket.clone() });
-                            tracing::info!("Share this ticket with opponent:\n{}", ticket);
-                        }
+                        let ticket = self.iroh_ctx.ticket();
+                        let _ = self.ui_tx.send(NetToUi::Ticket { ticket: ticket.clone() });
+                        tracing::info!("Share this ticket with opponent:\n{}", ticket);
                     }
                     Err(e) => {
                         #[cfg(feature = "headless")]
@@ -464,8 +470,8 @@ impl NetworkWorker {
                 0
             };
             
-            // Create a move record for storage
-            let move_record = p2pgo_core::MoveRecord {
+            // Create a move record for storage with proper hash chain
+            let mut move_record = p2pgo_core::MoveRecord {
                 mv: mv.clone(),
                 tag: None, // No tag for UI moves
                 ts: std::time::SystemTime::now()
@@ -473,10 +479,16 @@ impl NetworkWorker {
                     .unwrap_or_default()
                     .as_secs(),
                 broadcast_hash: None,
-                prev_hash: None,
+                prev_hash: None, // TODO: Get from previous move in chain
+                signature: None,
+                signer: None,
+                sequence,
             };
             
-            if let Err(e) = self.iroh_ctx.store_game_move(&active_game.game_id, sequence, &move_record).await {
+            // Calculate the broadcast hash
+            move_record.calculate_broadcast_hash();
+            
+            if let Err(e) = self.iroh_ctx.store_game_move(&active_game.game_id, mv.clone()).await {
                 tracing::warn!("Failed to store training move: {}", e);
             }
             
@@ -595,7 +607,14 @@ impl NetworkWorker {
     }
 
     async fn advertise_game(&mut self, game_id: &str, board_size: u8) -> anyhow::Result<()> {
-        if let Err(e) = self.iroh_ctx.advertise_game(game_id, board_size).await {
+        let game_info = p2pgo_network::lobby::GameInfo {
+            id: game_id.to_string(),
+            name: None,
+            board_size,
+            started: false,
+            needs_password: false,
+        };
+        if let Err(e) = self.iroh_ctx.advertise_game(&game_info).await {
             tracing::warn!("Failed to advertise game: {}", e);
             let _ = self.ui_tx.send(NetToUi::Error {
                 message: format!("Failed to advertise game: {}", e),
@@ -643,7 +662,7 @@ impl NetworkWorker {
     
     async fn handle_set_tag(&mut self, gid: String, seq: u32, tag: p2pgo_core::Tag) -> anyhow::Result<()> {
         // Store the tag annotation for the specified move
-        if let Err(e) = self.iroh_ctx.store_move_tag(&gid, seq, tag).await {
+        if let Err(e) = self.iroh_ctx.store_move_tag(&gid, &format!("{:?}", tag)).await {
             tracing::warn!("Failed to store move tag: {}", e);
             let _ = self.ui_tx.send(NetToUi::Error {
                 message: format!("Failed to store tag: {}", e),

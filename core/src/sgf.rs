@@ -221,8 +221,16 @@ impl SgfProcessor {
         // Create a new game state
         let mut game_state = GameState::new(size);
         
-        // Process moves
-        for node in tree.nodes.iter().skip(1) {  // Skip the root node
+        // Process the main line through the tree (including variations)
+        self.process_tree_main_line(&mut game_state, &tree)?;
+        
+        Ok(game_state)
+    }
+    
+    /// Process the main line through the tree (first variation)
+    fn process_tree_main_line(&self, game_state: &mut GameState, tree: &SgfTree) -> Result<()> {
+        // Process moves in current nodes
+        for node in tree.nodes.iter().skip(if game_state.moves.is_empty() { 1 } else { 0 }) {
             for prop in &node.properties {
                 match prop.id.as_str() {
                     "B" => {
@@ -232,9 +240,15 @@ impl SgfProcessor {
                             game_state.apply_move(Move::Pass)?;
                         } else {
                             // Try to parse as a coordinate
-                            match self.parse_sgf_coord(&prop.values[0], size) {
-                                Ok(coord) => game_state.apply_move(Move::Place(coord))?,
-                                Err(_) => game_state.apply_move(Move::Pass)?,
+                            match self.parse_sgf_coord(&prop.values[0], game_state.board_size) {
+                                Ok(coord) => {
+                                    game_state.apply_move(Move::Place { 
+                                        x: coord.x, y: coord.y, color: Color::Black 
+                                    })?;
+                                },
+                                Err(_) => {
+                                    game_state.apply_move(Move::Pass)?;
+                                },
                             }
                         }
                     },
@@ -245,9 +259,15 @@ impl SgfProcessor {
                             game_state.apply_move(Move::Pass)?;
                         } else {
                             // Try to parse as a coordinate
-                            match self.parse_sgf_coord(&prop.values[0], size) {
-                                Ok(coord) => game_state.apply_move(Move::Place(coord))?,
-                                Err(_) => game_state.apply_move(Move::Pass)?,
+                            match self.parse_sgf_coord(&prop.values[0], game_state.board_size) {
+                                Ok(coord) => {
+                                    game_state.apply_move(Move::Place { 
+                                        x: coord.x, y: coord.y, color: Color::White 
+                                    })?;
+                                },
+                                Err(_) => {
+                                    game_state.apply_move(Move::Pass)?;
+                                },
                             }
                         }
                     },
@@ -256,7 +276,12 @@ impl SgfProcessor {
             }
         }
         
-        Ok(game_state)
+        // Follow the first variation (main line)
+        if let Some(first_variation) = tree.variations.first() {
+            self.process_tree_main_line(game_state, first_variation)?;
+        }
+        
+        Ok(())
     }
     
     /// Parse an SGF coordinate like "ab" into a Coord
@@ -303,14 +328,17 @@ impl SgfProcessor {
             sgf.push(';');
             
             match mv {
-                Move::Place(coord) => {
-                    let sgf_x = (b'a' + coord.x) as char;
-                    let sgf_y = (b'a' + coord.y) as char;
+                Move::Place { x, y, color } => {
+                    let sgf_x = (b'a' + x) as char;
+                    let sgf_y = (b'a' + y) as char;
                     
-                    match current_color {
+                    match color {
                         Color::Black => sgf.push_str(&format!("B[{}{}]", sgf_x, sgf_y)),
                         Color::White => sgf.push_str(&format!("W[{}{}]", sgf_x, sgf_y)),
                     }
+                    
+                    // Update current color to match the move
+                    current_color = *color;
                 },
                 Move::Pass => {
                     match current_color {

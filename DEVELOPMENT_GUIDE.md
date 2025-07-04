@@ -10,6 +10,102 @@ P2P Go is a peer-to-peer Go (board game) application built in Rust, enabling gam
 p2pgo/
 ├── core/           # Game logic: board representation, rules, scoring
 ├── network/        # P2P networking using Iroh v0.35
+│   ├── src/port.rs       # Port management and persistence
+│   ├── src/net_util.rs   # Network utilities and spawn_cancelable macro
+│   ├── src/relay_monitor.rs # Relay health monitoring and embedded relay
+├── ui-egui/        # Desktop UI using egui/eframe
+│   ├── src/clipboard_helper.rs  # Multiplatform clipboard handling 
+│   ├── src/toast_manager.rs     # Toast notification system
+├── cli/            # Headless command-line interface for testing
+├── trainer/        # Machine learning models for Go AI
+└── scripts/        # Build and deployment scripts
+```
+
+## Build Instructions
+
+### Apple Silicon DMG Build
+```bash
+./scripts/dev_dmg.sh     # builds & opens P2P Go.dmg on macOS 11+
+```
+
+### Development Builds
+```bash
+# Build all packages
+cargo build --workspace
+
+# Run GUI application
+cargo run -p p2pgo-ui-egui
+
+# Run CLI application  
+cargo run -p p2pgo-cli -- --role host --size 19
+```
+
+### Icon Generation
+```bash
+./scripts/make_icns.sh   # converts PNG to ICNS
+```
+
+## Testing Instructions
+
+### Network Testing
+```bash
+./scripts/test_iroh_networking.sh    # Network layer tests
+./scripts/test_e2e_game.sh           # End-to-end game tests
+./scripts/run_two_gui.sh             # Local multiplayer testing
+./scripts/test_relay_integration.sh  # Embedded relay integration tests
+```
+
+## Embedded Relay Support
+
+P2P Go includes embedded relay support, allowing users to run a relay node directly within the application. This is useful for:
+
+1. Testing without external relays
+2. LAN-only play with friends
+3. Custom setups for tournaments or events
+
+### Configuration
+
+Relay mode can be configured in two ways:
+
+1. **Network Settings UI**: In the application's network panel, select "Self Relay" mode
+2. **Config File**: Edit `~/Library/Application Support/p2pgo/config.toml` with:
+   ```toml
+   relay_mode = "SelfRelay"  # Options: "Default", "Custom", "SelfRelay"
+   ```
+
+### Port Management
+
+The relay service uses port management with persistence:
+- First available port is chosen from range 9000-9500
+- Port is saved to `~/Library/Application Support/p2pgo/ports.toml`
+- Port is reused across application restarts
+
+### Relay Health Monitoring
+
+The application includes a robust relay monitoring system:
+- Status badge in UI uses colorblind-safe palette (Okabe-Ito)
+- Real-time health indicators for relay services
+- Automatic recovery from crashes with configurable retry limits
+
+### Clipboard Integration
+
+The UI supports direct copying of relay tickets:
+1. Click "Copy Ticket" to copy connection information
+2. Toast notification confirms successful copy
+3. Share ticket with opponents to establish connection
+````markdown
+# P2P Go Development Guide
+
+## Project Overview
+
+P2P Go is a peer-to-peer Go (board game) application built in Rust, enabling gameplay over decentralized networks without requiring central servers. The project targets Apple Silicon Macs exclusively and uses Iroh v0.35 for networking.
+
+## Project Structure
+
+```
+p2pgo/
+├── core/           # Game logic: board representation, rules, scoring
+├── network/        # P2P networking using Iroh v0.35
 ├── ui-egui/        # Desktop UI using egui/eframe  
 ├── cli/            # Headless command-line interface for testing
 ├── trainer/        # Machine learning models for Go AI

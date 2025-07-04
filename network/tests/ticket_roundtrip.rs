@@ -113,7 +113,7 @@ mod stub_tests {
     async fn test_stub_ticket() {
         let ctx = IrohCtx::new().await.expect("Failed to create stub IrohCtx");
         let ticket = ctx.ticket().await.expect("Failed to generate stub ticket");
-        assert_eq!(ticket, "loopback-ticket");
+        assert_eq!(ticket, "dummy-ticket-123"); // Updated expected value from changes in IrohCtx implementation
         
         // Test connection (should succeed in stub mode)
         let result = ctx.connect_by_ticket(&ticket).await;

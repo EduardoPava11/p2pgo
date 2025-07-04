@@ -2,40 +2,13 @@
 
 //! Main entry point for the egui UI
 
-use clap::Parser;
-use crossbeam_channel::unbounded;
+// Initialize logging at the start of the program
 use flexi_logger::{Logger, FileSpec, Naming, Cleanup, Criterion};
 use std::path::PathBuf;
 use anyhow::Result;
 
-mod app;
-mod view;
-mod msg;
-mod board_widget;
-mod worker;
-
-use app::App;
-use msg::{UiToNet, NetToUi};
-
-#[derive(Parser)]
-#[command(name = "p2pgo-ui-egui")]
-#[command(about = "Peer-to-peer Go game with egui UI")]
-struct Args {
-    #[arg(long, default_value = "9")]
-    board_size: u8,
-    
-    #[arg(long, default_value = "Player")]
-    player_name: String,
-    
-    #[arg(long)]
-    debug: bool,
-    
-    #[arg(long, help = "Connect directly using a ticket string")]
-    ticket: Option<String>,
-}
-
-/// Initialize the application logging system with rotation
-fn init_logging(debug: bool) -> Result<()> {
+// Initialize logging functionality first thing in the program
+fn init_logging() -> Result<()> {
     // Get log directory
     let log_dir = match std::env::consts::OS {
         "macos" => {
@@ -56,9 +29,7 @@ fn init_logging(debug: bool) -> Result<()> {
     std::fs::create_dir_all(&log_dir)?;
     
     // Configure and start the logger
-    let level = if debug { "debug" } else { "info" };
-    
-    Logger::try_with_str(level)?
+    Logger::try_with_str("info")?
         .log_to_file(
             FileSpec::default()
                 .directory(&log_dir)
@@ -70,18 +41,77 @@ fn init_logging(debug: bool) -> Result<()> {
             Naming::Timestamps,
             Cleanup::KeepLogFiles(5), // Keep 5 files
         )
+        // Process ID is already included in the log format
+        // Error context is added via tracing subscriber
         .start()?;
     
     Ok(())
 }
 
-fn main() -> anyhow::Result<()> {
-    let args = Args::parse();
+// Initialize logging as the first action
+#[allow(unused_variables)]
+static LOGGER_INIT: std::sync::Once = std::sync::Once::new();
+
+fn ensure_logging_initialized() -> Result<()> {
+    let mut result = Ok(());
+    LOGGER_INIT.call_once(|| {
+        match init_logging() {
+            Ok(_) => {},
+            Err(e) => {
+                result = Err(e);
+            }
+        }
+    });
     
-    // Initialize logging with rotation
-    if let Err(e) = init_logging(args.debug) {
+    result
+}
+
+use clap::Parser;
+use crossbeam_channel::unbounded;
+
+mod app;
+mod view;
+mod msg;
+mod board_widget;
+mod worker;
+mod network_panel;
+mod clipboard_helper;
+mod toast_manager;
+mod ui_config;
+mod offline_game;
+mod go3d;
+mod go3d_wireframe;
+
+use crate::app::App;
+use msg::{UiToNet, NetToUi};
+
+#[derive(Parser)]
+#[command(name = "p2pgo-ui-egui")]
+#[command(about = "Peer-to-peer Go game with egui UI")]
+struct Args {
+    #[arg(long, default_value = "9")]
+    board_size: u8,
+    
+    #[arg(long, default_value = "Player")]
+    player_name: String,
+    
+    #[arg(long)]
+    debug: bool,
+    
+    #[arg(long, help = "Connect directly using a ticket string")]
+    ticket: Option<String>,
+}
+
+/// Initialize the application logging system with rotation
+
+
+fn main() -> anyhow::Result<()> {
+    // Initialize logging as the first action in main
+    if let Err(e) = ensure_logging_initialized() {
         eprintln!("Warning: Failed to initialize logging: {}", e);
     }
+    
+    let args = Args::parse();
     
     // Initialize crash logger asynchronously
     let rt = tokio::runtime::Runtime::new()?;
@@ -120,7 +150,7 @@ fn main() -> anyhow::Result<()> {
     let ticket = args.ticket.clone();
     
     // Spawn background worker
-    let worker_handle = worker::spawn_worker(net_rx, net_tx.clone(), board_size, player_name.clone())?;
+    let _worker_handle = worker::spawn_worker(net_rx, net_tx.clone(), board_size, player_name.clone())?;
     
     // If ticket is provided, connect on startup
     if let Some(ticket_str) = ticket {
@@ -132,7 +162,9 @@ fn main() -> anyhow::Result<()> {
     
     // Launch egui app
     let options = eframe::NativeOptions {
-        initial_window_size: Some(egui::vec2(800.0, 600.0)),
+        initial_window_size: Some(egui::vec2(1200.0, 900.0)), // Large but not fullscreen
+        centered: true,
+        resizable: true,
         ..Default::default()
     };
     
@@ -149,7 +181,7 @@ fn main() -> anyhow::Result<()> {
 #[cfg(feature = "headless")]
 pub fn headless() -> anyhow::Result<()> {
     use crate::msg::UiToNet;
-    use p2pgo_core::{Move, Coord};
+    use p2pgo_core::{Move, Coord, Color};
     
     let (ui_tx, net_rx) = unbounded();
     let (net_tx, ui_rx) = unbounded();
@@ -168,11 +200,11 @@ pub fn headless() -> anyhow::Result<()> {
     
     // Simulate the game moves: B D4, W F4, B E5, W pass, B pass
     let moves = vec![
-        Move::Place(Coord::new(3, 3)), // D4 - Black
-        Move::Place(Coord::new(5, 3)), // F4 - White  
-        Move::Place(Coord::new(4, 4)), // E5 - Black
-        Move::Pass,                    // White pass
-        Move::Pass,                    // Black pass
+        Move::Place { x: 3, y: 3, color: Color::Black }, // D4 - Black
+        Move::Place { x: 5, y: 3, color: Color::White }, // F4 - White  
+        Move::Place { x: 4, y: 4, color: Color::Black }, // E5 - Black
+        Move::Pass,                                      // White pass
+        Move::Pass,                                      // Black pass
     ];
     
     for (i, mv) in moves.iter().enumerate() {

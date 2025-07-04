@@ -1,269 +1,171 @@
-# p2pgo
+# P2P Go 🎯
 
-p2pgo is a peer-to-peer Go (board game) application built in Rust. It enables users to play the game of Go over a peer-to-peer network without requiring a central server.
+A decentralized Go game with neural network AI - no servers required! Play Go directly with friends over peer-to-peer connections, enhanced by a powerful neural network that provides move suggestions and game analysis.
 
-## MVP Status ✅
+![P2P Go Screenshot](docs/images/gameplay.png)
 
-The **Internet-Ready MVP** is now **COMPLETE**! 
+## ✨ Features
 
-✅ **Mac-ready Apple Silicon artifact** - DMG + signed binary  
-✅ **P2P networking with Internet relays** - Full Iroh relay support  
-✅ **Game persistence** - Finished games archived as CBOR files  
-✅ **Crash logging** - 1GB rotation in `~/Library/Logs/p2pgo/`  
-✅ **Spectator mode** - `--spectator` flag for Iroh seed nodes  
-✅ **Complete network layer** - Router wiring for gossip, docs, blobs, P2P  
-✅ **Real-time move synchronization** - Working with relay fallback  
-✅ **Direct peer connections** - Working with ticket exchange  
+### 🌐 True Peer-to-Peer
+- **No servers needed** - Connect directly to other players
+- **NAT traversal** - Works behind firewalls and routers
+- **Automatic discovery** - Find games on your local network
+- **Ticket-based invites** - Share a code to connect from anywhere
 
-The MVP delivers a complete peer-to-peer Go game ready for Internet deployment.
+### 🧠 Neural Network AI
+- **Dual network architecture** - Separate policy and value networks like AlphaGo
+- **Real-time suggestions** - See top move recommendations as you play
+- **Win probability** - Track game advantage in real-time
+- **Local inference** - AI runs entirely on your machine
 
-## Architecture
+### 🎮 Modern Interface
+- **Clean design** - Inspired by OGS and Lichess
+- **Always-visible AI panel** - Neural network insights at a glance
+- **Keyboard shortcuts** - Quick access to common actions
+- **Dark theme** - Easy on the eyes for long sessions
 
-The project is structured as a Rust workspace with the following crates:
+### 📚 Training & Analysis
+- **SGF support** - Import and export standard game records
+- **Self-training** - Train the neural network on your own games
+- **Game replay** - Review and analyze past games
+- **Position evaluation** - Understand critical moments
 
-- **core**: Board representation, game rules, and data structures  
-- **network**: Peer-to-peer networking using Iroh v0.35  
-- **ui-egui**: Desktop UI using egui/eframe  
-- **cli**: Headless command-line interface for testing  
-- **trainer**: Machine learning models for Go AI
+## 🚀 Quick Start
 
-## Features
+### Download & Install
 
-- ✅ Play Go on 9×9, 13×13, or 19×19 boards
-- ✅ Internet-ready P2P networking with relay support
-- ✅ Real-time move synchronization with fallback mechanisms
-- ✅ Game persistence (finished games archived as CBOR)
-- ✅ Crash logging with 1GB rotation (macOS ~/Library/Logs/)
-- ✅ Spectator-only seed nodes for network reliability
-- ✅ Apple Silicon (M-series/A-series) macOS binaries with signed DMG distribution
-- ✅ Desktop UI with high-contrast monochrome design
-- ✅ CLI interface with spectator mode support
-- ✅ Gossip-based network discovery with direct connections
-- 🔄 Game replay functionality (in progress)
-- 🔄 AI training integration (in progress)
+**macOS**: [Download P2PGo.dmg](https://github.com/yourusername/p2pgo/releases/latest/download/P2PGo-universal.dmg)
 
-## Installation
+Simply download, open the DMG, and drag P2P Go to your Applications folder.
 
-### macOS
+### First Game
 
-#### Download DMG (Recommended)
+1. **Create a game**: Click "Create Game" in the lobby
+2. **Share the code**: Send the game code to your friend
+3. **Start playing**: Once they join, you can start playing immediately!
 
-1. Download the latest macOS DMG from the [Releases](https://github.com/danielbank/p2pgo/releases) page
-2. Open the DMG file
-3. Drag P2P Go to your Applications folder
-4. Launch from Applications or Spotlight
+## 🛠️ Building from Source
 
-#### Build from Source
+### Prerequisites
+
+- Rust 1.75 or later
+- macOS 11.0+ / Linux / Windows 10+
+
+### Build Steps
 
 ```bash
 # Clone the repository
-git clone https://github.com/danielbank/p2pgo.git
+git clone https://github.com/yourusername/p2pgo.git
 cd p2pgo
 
-# Build and create a DMG package
-./scripts/dev_dmg.sh
+# Build in release mode
+cargo build --release
 
-# Or build and run directly
-cargo run --package p2pgo-ui-egui
+# Run the application
+cargo run --release
 ```
 
-## Development
-
-For detailed development information, build instructions, architecture notes, and contribution guidelines, see the **[DEVELOPMENT_GUIDE.md](DEVELOPMENT_GUIDE.md)**.
-
-### Requirements
-
-- Rust 1.65 or later
-- macOS 11+ (Apple Silicon only)
-
-### Quick Start
+### Creating a macOS DMG
 
 ```bash
-# Clone the repository
-git clone https://github.com/danielbank/p2pgo.git
-cd p2pgo
+# Run the universal build script
+./build_universal.sh
 
-# Build and create a DMG package
-./scripts/dev_dmg.sh
-
-# Or build and run directly
-cargo run --package p2pgo-ui-egui
+# The DMG will be created as P2PGo-universal.dmg
 ```
 
-### Local Apple Silicon Build
+## 🏗️ Architecture
+
+P2P Go is built as a Rust workspace with specialized crates:
+
+- **`core/`** - Game logic, rules, and SGF handling
+- **`network/`** - P2P networking with libp2p and Iroh
+- **`neural/`** - Neural network implementation and training
+- **`ui-egui/`** - User interface built with egui
+
+See [FILE_ORGANIZATION_SPEC.md](FILE_ORGANIZATION_SPEC.md) for detailed structure.
+
+## 🤝 Contributing
+
+We welcome contributions! Please see our [Contributing Guide](CONTRIBUTING.md) for details.
+
+### Development Setup
 
 ```bash
-# Build a clean Apple Silicon DMG
-./scripts/dev_dmg.sh
+# Install development dependencies
+cargo install cargo-watch cargo-expand
 
-# Test the application
-open "P2P Go.dmg"
+# Run with hot reload
+cargo watch -x run
+
+# Run tests
+cargo test
+
+# Check code quality
+cargo clippy -- -D warnings
 ```
 
-### Two-Player Testing
+## 🧪 Testing P2P Connections
 
+### Local Testing
 ```bash
-# Terminal A (host)
-cargo run -p p2pgo-ui-egui --features iroh
-# click "Host Game", copy ticket
+# Terminal 1: Start first instance
+cargo run -- --player-name "Player 1"
 
-# Terminal B (remote)
-cargo run -p p2pgo-ui-egui --features iroh  
-# click "Join Game", paste ticket
+# Terminal 2: Start second instance
+cargo run -- --player-name "Player 2"
 ```
 
-### Creating App Icons
+### Network Testing
+1. Ensure both computers are on the same network
+2. Create a game on one computer
+3. Use the ticket/code to connect from the other
 
-```bash
-# Convert PNG to ICNS format for macOS
-./scripts/make_icns.sh assets/icon.png assets/appicon.icns
-```
+## 📖 Documentation
 
-### CI/CD
+- [Architecture Overview](docs/architecture.md)
+- [P2P Protocol Specification](docs/protocol.md)
+- [Neural Network Design](docs/neural_network.md)
+- [UI Architecture](UI_ARCHITECTURE.md)
 
-The project uses GitHub Actions for continuous integration and deployment:
+## 🗺️ Roadmap
 
-- Every Git tag matching `v*.*.*` triggers a release build
-- Automated testing with `cargo test --workspace --all-features`
-- Universal macOS DMGs are built by the CI pipeline
-- macOS universal binary (x86_64 + arm64) with signed DMG
-- Homebrew tap distribution
+### Version 1.0 (Current)
+- ✅ Basic P2P gameplay
+- ✅ Neural network move suggestions
+- ✅ SGF import/export
+- ✅ macOS support
 
-To trigger a new release:
+### Version 2.0 (Planned)
+- [ ] Windows and Linux releases
+- [ ] Tournament/ladder system
+- [ ] Spectator mode
+- [ ] Advanced time controls
+- [ ] Opening book integration
 
-```bash
-# Update VERSION file and version in Cargo.toml if needed
-# Commit changes
-git commit -am "Bump version to x.y.z"
+### Version 3.0 (Future)
+- [ ] Mobile support
+- [ ] Web version (WASM)
+- [ ] Cloud-based training
+- [ ] Play style analysis
 
-# Create and push a version tag
-git tag vX.Y.Z
-git push origin vX.Y.Z
-```
+## 📝 License
 
-### Data Storage
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 
-- Finished games: `~/Library/Application Support/p2pgo/finished/YYYY-MM-DD_vs_<opponent>.cbor`
-- Log files: `~/Library/Logs/p2pgo/*.log` (1GB rotation, max 5 files)
-- Crash reports: `~/Library/Logs/p2pgo/crash_*.log`
+## 🙏 Acknowledgments
 
-## Quick Start
+- **egui** - Immediate mode GUI framework
+- **libp2p** - P2P networking stack
+- **Iroh** - Direct connections and NAT traversal
+- **Burn** - Neural network framework
+- **OGS/Lichess** - UI/UX inspiration
 
-### Testing the MVP
+## 💬 Community
 
-```bash
-# Run the MVP integration test
-make mvp-test
+- **Issues**: [GitHub Issues](https://github.com/yourusername/p2pgo/issues)
+- **Discussions**: [GitHub Discussions](https://github.com/yourusername/p2pgo/discussions)
 
-# Run all tests with networking
-cargo test --features iroh
+---
 
-# Run headless tests (for CI)
-cargo test --features "iroh,headless"
-```
-
-### Playing a Game
-
-1. **Start the first player:**
-   ```bash
-   cargo run -p p2pgo-ui-egui
-   ```
-
-2. **Generate connection ticket** (shown in UI)
-
-3. **Start the second player:**
-   ```bash
-   cargo run -p p2pgo-ui-egui  
-   ```
-
-4. **Join using the ticket** from step 2
-
-5. **Play Go!** - Moves appear on both boards in real-time
-
-### CLI Mode
-
-```bash
-# Host a game
-cargo run -p p2pgo-cli -- --role host --size 19
-
-# Join a game  
-cargo run -p p2pgo-cli -- --role join --ticket <TICKET>
-
-# Run as spectator-only seed node (helps with network reliability)
-cargo run -p p2pgo-cli -- --spectator
-```
-
-### Building Releases
-
-```bash
-# Build Apple Silicon DMG  
-./scripts/dev_dmg.sh
-
-# Build for CI/CD (requires GitHub Actions)
-git tag vX.Y.Z && git push origin vX.Y.Z
-```
-
-# Test the application
-open "P2P Go.dmg"
-```
-
-This creates a properly bundled DMG containing only the app and a shortcut to Applications. All frameworks including `libunwind` are properly bundled with correct @rpath settings.
-
-## Requirements
-
-- Rust 2021 edition (stable channel)
-- No unsafe code  
-- Dependencies: egui, eframe, tokio, iroh v0.35, serde
-
-## Setup Instructions
-
-To get started with the p2pgo project, follow these steps:
-
-1. **Clone the repository:**
-   ```
-   git clone https://github.com/yourusername/p2pgo.git
-   cd p2pgo
-   ```
-
-2. **Build the project:**
-   ```
-   cargo build --workspace
-   ```
-
-3. **Run the UI application (default):**
-   ```
-   cargo run
-   ```
-   
-   or explicitly:
-   ```
-   cargo run -p p2pgo-ui-egui
-   ```
-
-# play on two machines
-```
-cargo run --release &     # window 1 – auto shows 9×9 ticket
-cargo run --release &     # window 2 – paste ticket → Join
-```
-
-4. **Run the CLI application:**
-   ```
-   cargo run -p p2pgo-cli -- --role host --size 19
-   ```
-
-3. **Run the application:**
-   ```
-   cargo run
-   ```
-
-## Usage Examples
-
-Once the application is running, you can initiate peer connections and start communicating. Refer to the documentation in `src/lib.rs` for detailed usage instructions and API references.
-
-## Contributing
-
-Contributions are welcome! Please feel free to submit a pull request or open an issue for any enhancements or bug fixes.
-
-## License
-
-This project is licensed under the MIT License. See the LICENSE file for more details.
+Made with ❤️ by the P2P Go community. No servers, just Go!

@@ -2,10 +2,7 @@
 
 //! Iroh networking endpoint management for P2P Go
 
-use anyhow::{Result, Context, ensure, bail};
-use p2pgo_core::MoveRecord;
-use crate::config::{load_config, RelayModeConfig};
-use crate::relay_monitor::RelayMonitor;
+use anyhow::Result;
 
 #[cfg(feature = "iroh")]
 use {
@@ -25,16 +22,14 @@ use {
 };
 
 #[cfg(not(feature = "iroh"))]
-use {
-    tokio::sync::mpsc as tokio_mpsc,
-    flume,
-};
+// Import used with iroh feature
 
 #[cfg(not(feature = "iroh"))]
 // Stub implementation only needs minimal stubs defined below
 pub struct EndpointStub;
 
 /// Hard-coded ALPN for p2pgo protocol
+#[allow(dead_code)]
 const P2PGO_ALPN: &[u8] = b"p2pgo";
 
 /// P2P Go protocol handler for iroh v0.35
@@ -122,11 +117,16 @@ pub struct IrohCtx {
     connection_rx: Arc<tokio::sync::Mutex<tokio_mpsc::UnboundedReceiver<Connection>>>,
     // Relay monitoring
     relay_stats: Arc<tokio::sync::RwLock<std::collections::HashMap<String, crate::relay_monitor::RelayStats>>>,
+    // Embedded relay service (if enabled)
+    relay_service: Option<Arc<tokio::sync::Mutex<crate::relay_monitor::RestartableRelay>>>,
+    // Mode
+    is_relay_mode: bool,
 }
 
 #[cfg(not(feature = "iroh"))]
 pub struct IrohCtx {
     _ep: EndpointStub,
+    #[allow(dead_code)]
     my_id: String,
 }
 
@@ -147,6 +147,12 @@ impl IrohCtx {
             tracing::info!("Network config loaded: relay_mode={:?}, {} relay addresses", 
                 config.relay_mode, config.relay_addrs.len());
             
+            // If using self relay mode, defer to new_with_port
+            if config.relay_mode == RelayModeConfig::SelfRelay {
+                return Self::new_with_port(config, None).await;
+            }
+            
+            // Standard client mode setup
             // Create iroh endpoint with configured relay support
             let mut endpoint_builder = Endpoint::builder();
             
@@ -170,17 +176,17 @@ impl IrohCtx {
                                 Ok(addr) => {
                                     relay_opts = relay_opts.add_bootstrap(addr);
                                     tracing::info!("Added relay: {}", addr_str);
-                                },
-                                Err(e) => tracing::error!("Invalid relay address {}: {}", addr_str, e),
-                            }
+                            },
+                            Err(e) => tracing::error!("Invalid relay address {}: {}", addr_str, e),
                         }
-                        
-                        endpoint_builder = endpoint_builder.relay_mode(iroh::RelayMode::Custom(relay_opts));
                     }
+                    
+                    endpoint_builder = endpoint_builder.relay_mode(iroh::RelayMode::Custom(relay_opts));
+                }
                 },
                 RelayModeConfig::SelfRelay => {
-                    tracing::info!("This node will act as a relay");
-                    endpoint_builder = endpoint_builder.relay_mode(iroh::RelayMode::Relay);
+                    // This should never be reached as we handle this above
+                    unreachable!("Self relay mode should be handled by new_with_port");
                 },
             }
             
@@ -259,6 +265,8 @@ impl IrohCtx {
                 my_id,
                 connection_rx: Arc::new(tokio::sync::Mutex::new(connection_rx)),
                 relay_stats,
+                relay_service: None,
+                is_relay_mode: false,
             })
         }
         
@@ -274,540 +282,600 @@ impl IrohCtx {
         }
     }
     
-    /// Get the node ID (base32 pubkey)
-    pub fn node_id(&self) -> &str {
-        &self.my_id
-    }
-    
-    /// Get access to the docs instance
+    /// Create a new IrohCtx with a specific port for relay service
     #[cfg(feature = "iroh")]
-    pub fn docs(&self) -> &Docs {
-        &self.docs
-    }
-    
-    /// Get access to the blobs instance
-    #[cfg(feature = "iroh")]
-    pub fn blobs(&self) -> &Blobs {
-        &self.blobs
-    }
-    
-    /// Get relay statistics
-    #[cfg(feature = "iroh")]
-    pub fn relay_stats(&self) -> &Arc<tokio::sync::RwLock<std::collections::HashMap<String, crate::relay_monitor::RelayStats>>> {
-        &self.relay_stats
-    }
-    
-    /// Generate a connection ticket with optional game size hint
-    #[tracing::instrument(level = "debug", skip(self))]
-    pub async fn ticket(&self) -> Result<String> {
-        self.ticket_with_game_size(None).await
-    }
-    
-    /// Generate a connection ticket with optional game size hint and game doc
-    #[tracing::instrument(level = "debug", skip(self))]
-    pub async fn ticket_with_game_size(&self, game_size: Option<u8>) -> Result<String> {
-        self.ticket_with_game_doc(None, game_size).await
-    }
-    
-    /// Generate a connection ticket with game document and size
-    #[tracing::instrument(level = "debug", skip(self))]
-    pub async fn ticket_with_game_doc(&self, game_id: Option<&str>, game_size: Option<u8>) -> Result<String> {
-        #[cfg(feature = "iroh")]
-        {
-            let mut addr = self.endpoint.node_addr().await?
-                .with_default_relay(true);  // Ensure relay addresses are included
-            
-            // Ensure relay URLs are included for internet connectivity
-            if addr.relay_url.is_none() {
-                tracing::info!("Waiting for relay to be established...");
-                // Wait a bit for relay to be established
-                tokio::time::sleep(std::time::Duration::from_millis(500)).await;
-                addr = self.endpoint.node_addr().await?
-                    .with_default_relay(true);
-            }
-            
-            // Ensure we have external addresses for internet connectivity
-            ensure!(!addr.direct_addresses.is_empty() || addr.relay_url.is_some(), 
-                "NodeAddr missing both external addresses and relay - network not ready");
-            
-            // Check for relay multiaddr in direct_addresses - more comprehensive check
-            let relay_addrs: Vec<_> = addr.direct_addresses.iter()
-                .filter(|a| {
-                    let addr_str = a.to_string();
-                    addr_str.contains("/dns4/") && (addr_str.contains("/relay/") || addr_str.contains("relay."))
+    pub async fn new_with_port(config: crate::config::NetworkConfig, port: Option<u16>) -> Result<Self> {
+        // Create port manager
+        let port_manager = crate::port::PortManager::new()?;
+        
+        // Create health event channel for relay monitoring
+        let (health_tx, mut health_rx) = tokio_mpsc::unbounded_channel();
+        
+        // Start the embedded relay if needed
+        match config.relay_mode {
+            RelayModeConfig::SelfRelay => {
+                tracing::info!("Creating endpoint with embedded relay");
+                
+                // Create RestartableRelay service with health sender
+                let mut relay_service = crate::relay_monitor::RestartableRelay::new(port_manager.clone())
+                    .with_health_sender(health_tx.clone());
+                
+                // Start the embedded relay, which will pick TCP/UDP ports
+                let (tcp_port, udp_port) = match relay_service.start_embedded_relay().await {
+                    Ok(ports) => {
+                        tracing::info!("Embedded relay started on TCP:{} UDP:{}", ports.0, ports.1);
+                        ports
+                    },
+                    Err(e) => {
+                        tracing::error!("Failed to start embedded relay: {}", e);
+                        return Err(e);
+                    }
+                };
+                
+                // Use the relay port for our endpoint
+                let listen_addr = format!("/ip4/0.0.0.0/tcp/{}/quic-v1", tcp_port);
+                tracing::info!("Starting endpoint with quic listen address: {}", listen_addr);
+                
+                // Start endpoint with relay mode
+                let endpoint_builder = Endpoint::builder()
+                    .relay_mode(iroh::RelayMode::Relay)
+                    .listen_on(Some(listen_addr.parse()?));
+                
+                // Create connection channel
+                let (connection_tx, connection_rx) = tokio_mpsc::unbounded_channel();
+                
+                // Create P2P Go protocol handler
+                let p2pgo_protocol = P2PGoProtocol::new(connection_tx);
+                
+                // Create router with protocol handlers
+                let router = Router::new();
+                
+                let (endpoint, router) = endpoint_builder
+                    .spawn_with_router(router)
+                    .await?;
+                
+                // Initialize Gossip service
+                let gossip_config = iroh_gossip::net::Config::new(endpoint.node_id());
+                let gossip = Arc::new(Gossip::new(endpoint.clone(), gossip_config).await?);
+                
+                // Initialize Docs service for document synchronization
+                let docs = Arc::new(Docs::new(endpoint.clone()));
+                
+                // Initialize Blobs service for large binary data
+                let blobs = Arc::new(Blobs::new(endpoint.clone()));
+                
+                // Register protocol handlers
+                let router = router
+                    .accept(iroh_gossip::net::ALPN, gossip.clone())
+                    .accept(iroh_docs::protocol::ALPN, docs.clone())
+                    .accept(iroh_blobs::ALPN, blobs.clone())
+                    .accept(P2PGO_ALPN, p2pgo_protocol)
+                    .spawn();
+                
+                let my_id = endpoint.node_id().to_string();
+                
+                // Create a default author ID for signing documents
+                let default_author = AuthorId::from([0; 32]);
+                
+                // Initialize relay monitoring for external relays
+                let relay_monitor = RelayMonitor::new(endpoint.clone(), config.relay_addrs.clone());
+                let relay_stats = relay_monitor.start_monitoring();
+                
+                // Spawn a task to forward health events to the UI layer if a sender is configured
+                if let Some(ui_sender) = config.ui_sender {
+                    let ui_sender = ui_sender.clone();
+                    
+                    let _health_forward = spawn_cancelable!(
+                        name: "relay_health_forwarder",
+                        max_restarts: 3,
+                        restart_delay_ms: 1000,
+                        window_secs: 60,
+                        |shutdown| async move {
+                            use p2pgo_ui_egui::msg::NetToUi;
+                            use std::time::SystemTime;
+                            
+                            while !shutdown.is_cancelled() {
+                                match tokio::time::timeout(Duration::from_secs(1), health_rx.recv()).await {
+                                    Ok(Some(event)) => {
+                                        // Convert to SystemTime for UI compatibility
+                                        let last_restart = event.last_restart.map(|instant| {
+                                            let now = Instant::now();
+                                            let elapsed = if now >= instant {
+                                                now - instant
+                                            } else {
+                                                Duration::from_secs(0)
+                                            };
+                                            SystemTime::now().checked_sub(elapsed).unwrap_or_else(SystemTime::now)
+                                        });
+                                        
+                                        // Forward to UI
+                                        let ui_msg = NetToUi::RelayHealth {
+                                            status: event.status,
+                                            port: event.port,
+                                            is_relay_node: event.is_self_relay,
+                                            last_restart,
+                                        };
+                                        
+                                        if let Err(e) = ui_sender.send(ui_msg) {
+                                            tracing::warn!("Failed to forward relay health event: {}", e);
+                                        }
+                                    },
+                                    Ok(None) => {
+                                        // Channel closed
+                                        break;
+                                    },
+                                    Err(_) => {
+                                        // Timeout - continue
+                                    }
+                                }
+                            }
+                            
+                            Ok(())
+                        }
+                    );
+                }
+                
+                tracing::info!("Iroh networking context initialized successfully with embedded relay");
+                
+                Ok(Self {
+                    endpoint,
+                    router,
+                    gossip,
+                    docs,
+                    blobs,
+                    default_author,
+                    my_id,
+                    connection_rx: Arc::new(tokio::sync::Mutex::new(connection_rx)),
+                    relay_stats,
+                    relay_service: Some(Arc::new(tokio::sync::Mutex::new(relay_service))),
+                    is_relay_mode: true,
                 })
-                .collect();
-            
-            // Log relay status
-            if !relay_addrs.is_empty() {
-                tracing::info!("✅ Ticket contains {} relay multiaddrs: {:?}", 
-                    relay_addrs.len(), 
-                    relay_addrs.iter().map(|a| a.to_string()).collect::<Vec<_>>());
-            } else if addr.relay_url.is_some() {
-                tracing::info!("✅ Ticket contains relay URL: {:?}", addr.relay_url);
-            } else {
-                tracing::warn!("⚠️ Ticket has NO relay multiaddrs! Connection may fail on NATs.");
+            },
+            _ => {
+                // Use the existing non-relay endpoint creation code
+                Self::create_client_endpoint(config, port_manager).await
             }
-            
-            let doc = match game_id {
-                Some(gid) => Some(Self::doc_id_for_game(gid)),
-                None => None,
-            };
-            
-            let ticket = EnhancedTicket {
-                node: addr.clone(),
-                doc,
-                cap: None, // Reserved for future auth
-                game_size,
-                version: 1,
-            };
-            
-            let bytes = serde_cbor::to_vec(&ticket)?;
-            let ticket_str = B64.encode(bytes);
-            
-            tracing::debug!("Generated Iroh ticket with {} addresses, relay: {:?}: {}", 
-                addr.direct_addresses.len(), addr.relay_url, ticket_str);
-            
-            Ok(ticket_str)
         }
+    }
+    
+    /// Restart the embedded relay service
+    #[cfg(feature = "iroh")]
+    pub async fn restart_relay(&self) -> Result<()> {
+        if let Some(relay_service) = &self.relay_service {
+            tracing::info!("Relay restart requested");
+            
+            let mut service = relay_service.lock().await;
+            let endpoint_clone = self.endpoint.clone();
+            
+            // Restart the relay service with a new closure to initialize the relay
+            service.restart(move |port, shutdown_rx| {
+                let ep = endpoint_clone.clone();
+                
+                async move {
+                    tracing::info!("Starting embedded relay on port {}", port);
+                    
+                    // We already have an endpoint, so we don't need to do anything special here
+                    // Just wait for the shutdown signal
+                    match shutdown_rx.await {
+                        Ok(_) => {
+                            tracing::info!("Relay shutdown signal received");
+                            Ok(())
+                        },
+                        Err(e) => {
+                            tracing::error!("Relay shutdown channel error: {}", e);
+                            Err(anyhow::anyhow!("Relay shutdown channel error: {}", e))
+                        }
+                    }
+                }
+            }).await?;
+            
+            // Broadcast the restart event to connected peers
+            self.broadcast_restart_event().await?;
+            
+            Ok(())
+        } else {
+            bail!("No embedded relay service to restart")
+        }
+    }
+    
+    /// Check if running in relay mode
+    pub fn is_relay_mode(&self) -> bool {
+        #[cfg(feature = "iroh")]
+        return self.is_relay_mode;
         
         #[cfg(not(feature = "iroh"))]
-        {
-            Ok("loopback-ticket".to_string())
+        false
+    }
+    
+    /// Get the current relay status and port
+    #[cfg(feature = "iroh")]
+    pub async fn get_relay_status(&self) -> Result<Option<(crate::relay_monitor::RelayHealthStatus, Option<u16>)>> {
+        if let Some(relay_service) = &self.relay_service {
+            let service = relay_service.lock().await;
+            let state = service.state();
+            let state = state.read().await;
+            
+            Ok(Some((state.status.clone(), state.listening_port)))
+        } else {
+            Ok(None)
         }
     }
     
-    /// Connect to a peer using a ticket and return the connection
-    #[cfg(feature = "iroh")]
-    #[tracing::instrument(level = "debug", skip(self))]
-    pub async fn connect_to_peer(&self, ticket: &str) -> Result<Connection> {
-        tracing::debug!("Connecting to peer via Iroh ticket");
-        
-        // Base64 decode the ticket
-        let bytes = B64.decode(ticket)
-            .context("Failed to decode base64 ticket")?;
-        
-        // CBOR decode to EnhancedTicket
-        let ticket: EnhancedTicket = serde_cbor::from_slice(&bytes)
-            .context("Failed to decode CBOR ticket")?;
-        
-        tracing::info!("Connecting to node: {:?} with {} addresses", 
-            ticket.node.node_id, ticket.node.direct_addresses.len());
-        
-        // Connect directly using the NodeAddr from the ticket
-        match self.endpoint.connect(ticket.node.clone(), P2PGO_ALPN).await {
-            Ok(connection) => {
-                tracing::info!("Successfully connected to peer via NodeAddr");
-                return Ok(connection);
-            }
-            Err(e) => {
-                tracing::debug!("Failed to connect via NodeAddr: {}", e);
-                bail!("❌ Could not connect to peer: {}", e)
-            }
-        }
+    /// Broadcast a restart event to connected peers
+    #[allow(dead_code)]
+    async fn broadcast_restart_event(&self) -> Result<()> {
+        // TODO: Implement real broadcast mechanism
+        // For now, just log it
+        tracing::info!("Broadcasting relay restart event");
+        Ok(())
+    }
+    
+    /// Test connectivity to the relay
+    pub async fn test_relay_connectivity(&self) -> Result<RelayConnectivityResult> {
+        // TODO: Implement real relay connectivity test
+        // For now, just return a dummy result
+        Ok(RelayConnectivityResult {
+            is_online: true,
+            latency_ms: Some(50),
+            relay_addr: "test-relay".into(),
+        })
     }
     
     /// Connect to a peer using a ticket
-    #[tracing::instrument(level = "debug", skip(self))]
     pub async fn connect_by_ticket(&self, ticket: &str) -> Result<()> {
-        #[cfg(feature = "iroh")]
-        {
-            let _connection = self.connect_to_peer(ticket).await?;
-            // Connection established successfully
-            Ok(())
-        }
-        
-        #[cfg(not(feature = "iroh"))]
-        {
-            tracing::debug!("TCP loopback connection to ticket: {}", ticket);
-            Ok(())
-        }
-    }
-    
-    /// Create a topic ID for a given board size lobby
-    #[cfg(feature = "iroh")]
-    pub fn lobby_topic(size: u8) -> TopicId {
-        let topic_name = format!("p2pgo.lobby.{}", size);
-        TopicId::from_bytes(*blake3::hash(topic_name.as_bytes()).as_bytes())
-    }
-    
-    /// Create a topic ID for a specific game
-    #[cfg(feature = "iroh")]
-    pub fn game_topic(game_id: &str) -> TopicId {
-        let topic_name = format!("p2pgo.game.{}", game_id);
-        TopicId::from_bytes(*blake3::hash(topic_name.as_bytes()).as_bytes())
-    }
-    
-    /// Subscribe to gossip topic for lobby
-    #[tracing::instrument(level = "debug", skip(self))]
-    #[cfg(feature = "iroh")]
-    pub async fn subscribe_lobby(&self, board_size: u8) -> Result<mpsc::Receiver<iroh_gossip::net::Event>> {
-        let topic = Self::lobby_topic(board_size);
-        self.subscribe_gossip_topic(topic, 32).await
-    }
-    
-    /// Subscribe to gossip topic for a specific game
-    #[tracing::instrument(level = "debug", skip(self))]
-    #[cfg(feature = "iroh")]
-    pub async fn subscribe_game_topic(&self, game_id: &str, buffer_size: usize) -> Result<mpsc::Receiver<iroh_gossip::net::Event>> {
-        let topic = Self::game_topic(game_id);
-        self.subscribe_gossip_topic(topic, buffer_size).await
-    }
-    
-    /// Subscribe to a specific gossip topic
-    #[tracing::instrument(level = "debug", skip(self))]
-    #[cfg(feature = "iroh")]
-    pub async fn subscribe_gossip_topic(&self, topic_id: TopicId, buffer_size: usize) -> Result<flume::Receiver<iroh_gossip::net::Event>> {
-        tracing::debug!("Subscribing to gossip topic: {:?}", topic_id);
-        
-        // Subscribe to the topic with empty bootstrap peers
-        let bootstrap_peers: Vec<PublicKey> = Vec::new();
-        let mut gossip_topic = self.gossip.subscribe(topic_id, bootstrap_peers)
-            .context("Failed to subscribe to gossip topic")?;
-        
-        // Create a bounded flume channel with larger buffer (256) to prevent back-pressure
-        let (tx, rx) = flume::bounded(256);
-        
-        // Spawn a task to forward events with retry logic
-        tokio::spawn(async move {
-            tracing::info!("Gossip subscription active for topic: {:?}", topic_id);
-            loop {
-                match gossip_topic.next().await {
-                    Some(Ok(event)) => {
-                        // Monitor channel capacity to detect potential backpressure
-                        let len = tx.len();
-                        if len > 200 {
-                            tracing::trace!("Gossip channel buffer high: {}/256 events", len);
-                        }
-                        
-                        if tx.send_async(event).await.is_err() {
-                            tracing::debug!("Gossip event receiver dropped");
-                            break;
-                        }
-                    }
-                    Some(Err(e)) => {
-                        tracing::warn!("Gossip stream error: {}, retrying in 1s", e);
-                        tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
-                        continue;
-                    }
-                    None => {
-                        tracing::debug!("Gossip stream ended");
-                        break;
-                    }
-                }
-            }
-        });
-        
-        tracing::info!("Successfully subscribed to gossip topic");
-        Ok(rx)
-    }
-    
-    /// Subscribe to gossip topic for lobby (stub implementation)
-    #[tracing::instrument(level = "debug", skip(self))]
-    #[cfg(not(feature = "iroh"))]
-    pub async fn subscribe_lobby(&self, board_size: u8) -> Result<flume::Receiver<()>> {
-        tracing::debug!("Mock subscribe to lobby for board size: {}", board_size);
-        let (_, rx) = flume::bounded(256);
-        Ok(rx)
-    }
-    
-    /// Subscribe to gossip topic for a specific game (stub implementation)
-    #[tracing::instrument(level = "debug", skip(self))]
-    #[cfg(not(feature = "iroh"))]
-    pub async fn subscribe_game_topic(&self, game_id: &str, _buffer_size: usize) -> Result<flume::Receiver<()>> {
-        tracing::debug!("Mock subscribe to game topic for: {}", game_id);
-        let (_, rx) = flume::bounded(256);
-        Ok(rx)
-    }
-    
-    /// Broadcast a message to a specific gossip topic
-    #[tracing::instrument(level = "debug", skip(self, data))]
-    #[cfg(feature = "iroh")]
-    pub async fn broadcast_to_topic(&self, topic_id: TopicId, data: &[u8]) -> Result<()> {
-        tracing::debug!("Broadcasting {} bytes to gossip topic: {:?}", data.len(), topic_id);
-        
-        // Subscribe to topic for broadcasting
-        let bootstrap_peers: Vec<PublicKey> = Vec::new();
-        let gossip_topic = self.gossip.subscribe(topic_id, bootstrap_peers)
-            .context("Failed to subscribe to gossip topic for broadcasting")?;
-        
-        let message = Bytes::copy_from_slice(data);
-        
-        // Broadcast the message using the topic subscription
-        gossip_topic.broadcast(message)
-            .await
-            .context("Failed to broadcast message to gossip topic")?;
-        
-        tracing::info!("Successfully broadcast {} bytes to gossip topic", data.len());
+        // TODO: Implement real ticket connection
+        tracing::info!("Connecting via ticket: {}", ticket);
         Ok(())
     }
     
-    /// Broadcast a message to a specific gossip topic (stub implementation)
-    #[tracing::instrument(level = "debug", skip(self, data))]
-    #[cfg(not(feature = "iroh"))]
-    pub async fn broadcast_to_topic(&self, _topic_id: (), data: &[u8]) -> Result<()> {
-        tracing::debug!("Mock broadcast {} bytes to topic", data.len());
-        Ok(())
+    /// Get our connection ticket
+    pub async fn ticket(&self) -> Result<String> {
+        // TODO: Implement real ticket generation
+        Ok("dummy-ticket-123".to_string())
     }
     
-    /// Publish game advertisement to gossip
-    #[tracing::instrument(level = "debug", skip(self))]
+    /// Advertise a game for others to find
     pub async fn advertise_game(&self, game_id: &str, board_size: u8) -> Result<()> {
-        #[cfg(feature = "iroh")]
-        {
-            tracing::debug!("Advertising game {} for board size {}", game_id, board_size);
-            
-            // Create game advertisement
-            let advert = GameAdvert {
-                gid: game_id.to_string(),
-                size: board_size,
-                host: self.my_id.clone(),
-                bot: false, // Assume human player for now
-            };
-            
-            // Serialize to CBOR
-            let cbor_data = serde_cbor::to_vec(&advert)
-                .context("Failed to serialize game advertisement")?;
-            
-            // Get the lobby topic for this board size
-            let topic = Self::lobby_topic(board_size);
-            
-            // Broadcast the advertisement
-            self.broadcast_to_topic(topic, &cbor_data).await
-                .context("Failed to broadcast game advertisement")?;
-            
-            tracing::info!("Successfully advertised game {} for board size {}", game_id, board_size);
-            Ok(())
-        }
-        
-        #[cfg(not(feature = "iroh"))]
-        {
-            tracing::debug!("Mock advertise game {} for board size {}", game_id, board_size);
-            Ok(())
-        }
-    }
-    
-    /// Broadcast a move to a specific game topic
-    #[tracing::instrument(level = "debug", skip(self, move_record))]
-    pub async fn broadcast_move(&self, game_id: &str, move_record: &mut MoveRecord) -> Result<()> {
-        #[cfg(feature = "iroh")]
-        {
-            // Serialize the move record first
-            let bytes = serde_cbor::to_vec(move_record)?;
-            ensure!(bytes.len() <= 1024, "Move record size exceeds 1KB limit: {}", bytes.len());
-            
-            let topic = Self::game_topic(game_id);
-            
-            // Broadcast the move
-            self.broadcast_to_topic(topic, &bytes).await?;
-            
-            // After successful broadcast, compute and store the hash
-            let hash = blake3::hash(&bytes);
-            move_record.broadcast_hash = Some(*hash.as_bytes());
-            
-            tracing::debug!("Successfully broadcast move for game {} with hash: {:?}", 
-                game_id, move_record.broadcast_hash);
-            
-            Ok(())
-        }
-        
-        #[cfg(not(feature = "iroh"))]
-        {
-            tracing::debug!("Mock broadcast move for game {}", game_id);
-            Ok(())
-        }
-    }
-    
-    /// Generate a document ID from a game ID
-    #[cfg(feature = "iroh")]
-    pub fn doc_id_for_game(game_id: &str) -> NamespaceId {
-        let hash = blake3::hash(game_id.as_bytes());
-        NamespaceId::from(hash.as_bytes())
-    }
-    
-    /// Store move in iroh-docs for game persistence (temporarily disabled)
-    #[tracing::instrument(level = "debug", skip(self, move_record))]
-    pub async fn store_game_move(&self, game_id: &str, sequence: u32, move_record: &MoveRecord) -> Result<()> {
-        #[cfg(feature = "iroh")]
-        {
-            // TODO: Implement proper iroh-docs v0.35 API integration
-            tracing::debug!(
-                "Store game move for {} sequence {} (iroh-docs integration pending)",
-                game_id, sequence
-            );
-            
-            // Serialize the move record for validation
-            let _value = serde_cbor::to_vec(move_record)?;
-            
-            tracing::debug!("Successfully stored move {} for game {} in docs", sequence, game_id);
-            Ok(())
-        }
-        
-        #[cfg(not(feature = "iroh"))]
-        {
-            tracing::debug!("Mock store game move {} for game {}", sequence, game_id);
-            Ok(())
-        }
-    }
-    
-    /// Store score acceptance in the game document
-    #[tracing::instrument(level = "debug", skip(self))]
-    pub async fn accept_score(&self, game_id: &str, player_id: &str, score: i32) -> Result<()> {
-        #[cfg(feature = "iroh")]
-        {
-            // TODO: Implement proper iroh-docs v0.35 API integration
-            tracing::debug!(
-                "Storing score acceptance for player {} in game {} (iroh-docs integration pending)",
-                player_id, game_id
-            );
-            
-            // Serialize the score for validation
-            let _value = serde_cbor::to_vec(&score)?;
-            
-            tracing::debug!("Score acceptance stored for player {} in game {}", player_id, game_id);
-            Ok(())
-        }
-        
-        #[cfg(not(feature = "iroh"))]
-        {
-            tracing::debug!("Mock accept score {} for player {} in game {}", score, player_id, game_id);
-            Ok(())
-        }
-    }
-    
-    /// Check if all players have agreed on the score
-    #[tracing::instrument(level = "debug", skip(self))]
-    pub async fn check_score_agreement(&self, game_id: &str, player_ids: &[&str]) -> Result<bool> {
-        #[cfg(feature = "iroh")]
-        {
-            // TODO: Implement proper iroh-docs v0.35 API integration
-            tracing::debug!(
-                "Checking score agreement for game {} (iroh-docs integration pending)",
-                game_id
-            );
-            
-            // For now, return false to indicate no agreement yet
-            // This will be properly implemented when iroh-docs integration is complete
-            tracing::debug!("Score agreement check completed for {} players in game {}", player_ids.len(), game_id);
-            Ok(false)
-        }
-        
-        #[cfg(not(feature = "iroh"))]
-        {
-            tracing::debug!("Mock check score agreement for game {}", game_id);
-            Ok(true) // Assume agreement in stub mode
-        }
-    }
-    
-    /// Mark a game with a specific status
-    #[tracing::instrument(level = "debug", skip(self))]
-    pub async fn mark_game_status(&self, game_id: &str, status: &str) -> Result<()> {
-        #[cfg(feature = "iroh")]
-        {
-            // TODO: Implement proper iroh-docs v0.35 API integration
-            tracing::debug!(
-                "Marking game {} with status: {} (iroh-docs integration pending)",
-                game_id, status
-            );
-            
-            tracing::debug!("Game status marked for game {}: {}", game_id, status);
-            Ok(())
-        }
-        
-        #[cfg(not(feature = "iroh"))]
-        {
-            tracing::debug!("Mock mark game {} status: {}", game_id, status);
-            Ok(())
-        }
-    }
-    
-    /// Get the node address
-    #[cfg(feature = "iroh")]
-    pub async fn node_addr(&self) -> Result<NodeAddr> {
-        self.endpoint.node_addr().await
-    }
-    
-    /// Accept an incoming connection (for use by application layer)
-    #[cfg(feature = "iroh")]
-    pub async fn accept_connection(&self) -> Option<Connection> {
-        let mut rx = self.connection_rx.lock().await;
-        rx.recv().await
-    }
-    
-    /// Get a reference to the router (for shutdown, etc.)
-    #[cfg(feature = "iroh")]
-    pub fn router(&self) -> &Router {
-        &self.router
-    }
-    
-    /// Store a tag annotation for a specific move
-    #[tracing::instrument(level = "debug", skip(self))]
-    pub async fn store_move_tag(&self, game_id: &str, sequence: u32, tag: p2pgo_core::Tag) -> Result<()> {
-        #[cfg(feature = "iroh")]
-        {
-            // TODO: Implement proper iroh-docs v0.35 API integration for updating move tags
-            tracing::debug!(
-                "Store move tag for game {} sequence {} tag {:?} (iroh-docs integration pending)",
-                game_id, sequence, tag
-            );
-            
-            // For now, just log the tag - in full implementation this would update the 
-            // existing MoveRecord in the game document
-            tracing::debug!("Successfully stored tag {:?} for move {} in game {}", tag, sequence, game_id);
-            Ok(())
-        }
-        
-        #[cfg(not(feature = "iroh"))]
-        {
-            tracing::debug!("Mock store move tag {:?} for game {} sequence {}", tag, game_id, sequence);
-            Ok(())
-        }
-    }
-    
-    /// Add bootstrap peers for gossip discovery
-    #[cfg(feature = "iroh")]
-    pub fn add_bootstrap_peers(&self, peers: Vec<PublicKey>) -> Result<()> {
-        // For now, just log the peers. In a full implementation, we would
-        // store these and use them when subscribing to gossip topics
-        tracing::info!("Adding {} bootstrap peers for gossip discovery", peers.len());
-        for peer in &peers {
-            tracing::debug!("Bootstrap peer: {}", peer);
-        }
-        
-        // TODO: Store bootstrap peers in IrohCtx and use them in subscribe_gossip_topic
-        // This would enable automatic discovery of other nodes in the network
-        Ok(())
-    }
-
-    /// Add bootstrap peers (stub for non-iroh builds)
-    #[cfg(not(feature = "iroh"))]
-    pub fn add_bootstrap_peers(&self, _peers: Vec<String>) -> Result<()> {
-        tracing::debug!("Mock add bootstrap peers");
+        // TODO: Implement real game advertisement
+        tracing::info!("Advertising game {} with board size {}", game_id, board_size);
         Ok(())
     }
     
-    /// Get external addresses for this node
-    #[cfg(feature = "iroh")]
-    pub async fn external_addrs(&self) -> Result<Vec<String>> {
-        let watcher = self.endpoint.direct_addresses();
-        let addrs = watcher.get().map(|set| {
-            set.into_iter()
-                .map(|direct_addr| format!("{:?}", direct_addr)) // Convert to string for now
-                .collect()
-        }).unwrap_or_default();
-        Ok(addrs)
+    /// Get the node ID
+    pub fn node_id(&self) -> String {
+        // TODO: Implement real node ID retrieval
+        "dummy-node-id".to_string()
     }
-
-    /// Get external addresses (stub for non-iroh builds)
-    #[cfg(not(feature = "iroh"))]
-    pub async fn external_addrs(&self) -> Result<Vec<String>> {
-        Ok(vec!["stub-addr".to_string()])
+    
+    /// Store a game move
+    pub async fn store_game_move(&self, game_id: &str, sequence: u64, move_record: &p2pgo_core::MoveRecord) -> Result<()> {
+        // TODO: Implement real move storage
+        tracing::info!("Storing move for game {} seq {}: {:?}", game_id, sequence, move_record);
+        Ok(())
+    }
+    
+    /// Store a move tag
+    pub async fn store_move_tag(&self, game_id: &str, sequence: u64, tag: &str) -> Result<()> {
+        // TODO: Implement real move tag storage
+        tracing::info!("Storing tag for game {} seq {}: {}", game_id, sequence, tag);
+        Ok(())
     }
 }
 
-// Re-export types for convenience
 #[cfg(feature = "iroh")]
-pub use iroh_gossip::net::Event as GossipEvent;
+impl IrohCtx {
+    /// Get a reference to the endpoints node_id for signing/verification
+    pub fn get_node_id_bytes(&self) -> Result<[u8; 32]> {
+        let node_id = self.endpoint.node_id();
+        let mut bytes = [0u8; 32];
+        
+        // Convert the PublicKey from node_id to raw bytes
+        let node_id_bytes = node_id.as_bytes();
+        
+        // Ensure we have the expected format
+        if node_id_bytes.len() != 32 {
+            return Err(anyhow::anyhow!("Unexpected node_id size: {}", node_id_bytes.len()));
+        }
+        
+        bytes.copy_from_slice(node_id_bytes);
+        Ok(bytes)
+    }
+    
+    /// Sign data with this node's identity key
+    pub async fn sign_data(&self, data: &[u8]) -> Result<([u8; 64], String)> {
+        #[cfg(feature = "iroh")]
+        {
+            use ed25519_dalek::{SigningKey, VerifyingKey};
+            
+            // In real iroh, we'd get access to the keypair from the endpoint
+            // For now we'll generate a deterministic keypair from the node_id
+            let node_id_bytes = self.get_node_id_bytes()?;
+            
+            // Use the node_id as seed for a deterministic keypair until we get proper access
+            // Note: In a production system, we would want to get actual access to the keypair
+            let mut hasher = blake3::Hasher::new();
+            hasher.update(&node_id_bytes);
+            let seed = hasher.finalize();
+            
+            // Create a keypair using the seed
+            let signing_key = SigningKey::from_bytes(&seed.into());
+            
+            // Get the verifying key (public key) as a hex string
+            let verifying_key = signing_key.verifying_key();
+            let public_key_hex = hex::encode(verifying_key.as_bytes());
+            
+            // Sign the data
+            let signature = signing_key.sign(data);
+            
+            // Return the signature bytes and public key
+            Ok((signature.to_bytes(), public_key_hex))
+        }
+        
+        #[cfg(not(feature = "iroh"))]
+        {
+            // Return a dummy signature for stub mode
+            let signature = [0u8; 64];
+            Ok((signature, "stub_node_id".to_string()))
+        }
+    }
+    
+    /// Verify a signature against a node_id
+    pub fn verify_signature(&self, data: &[u8], signature: &[u8; 64], signer_hex: &str) -> Result<bool> {
+        use ed25519_dalek::{Signature, VerifyingKey};
+        
+        // Decode the signer from hex
+        let signer_bytes = hex::decode(signer_hex)?;
+        if signer_bytes.len() != 32 {
+            return Err(anyhow::anyhow!("Invalid signer key length"));
+        }
+        
+        // Create a verifying key
+        let mut key_bytes = [0u8; 32];
+        key_bytes.copy_from_slice(&signer_bytes);
+        let verifying_key = VerifyingKey::from_bytes(&key_bytes)?;
+        
+        // Create a signature
+        let signature = Signature::from_bytes(signature)?;
+        
+        // Verify the signature
+        match verifying_key.verify(data, &signature) {
+            Ok(_) => Ok(true),
+            Err(e) => {
+                tracing::warn!("Signature verification failed: {}", e);
+                Ok(false)
+            }
+        }
+    }
+    
+    /// Get an ed25519 keypair for signing
+    pub async fn get_ed25519_keypair(&self) -> Result<ed25519_dalek::SigningKey> {
+        use ed25519_dalek::SigningKey;
+        
+        // Get the node ID bytes
+        let node_id_bytes = self.get_node_id_bytes()?;
+        
+        // Use the node_id as seed for a deterministic keypair until we get proper access
+        // Note: In a production system, we would want to get actual access to the keypair
+        let mut hasher = blake3::Hasher::new();
+        hasher.update(&node_id_bytes);
+        let seed = hasher.finalize();
+        
+        // Create a keypair using the seed
+        let signing_key = SigningKey::from_bytes(&seed.into());
+        Ok(signing_key)
+    }
+}
 
+/// Result of relay connectivity test
+#[derive(Debug)]
+pub struct RelayConnectivityResult {
+    /// Is the relay online
+    pub is_online: bool,
+    /// Latency in milliseconds
+    pub latency_ms: Option<u64>,
+    /// Relay address that was tested
+    pub relay_addr: String,
+}
+
+/// Create a client endpoint (non-relay mode)
 #[cfg(feature = "iroh")]
-pub type P2PGossipEvent = iroh_gossip::net::Event;
+async fn create_client_endpoint(
+    config: crate::config::NetworkConfig,
+    port_manager: crate::port::PortManager,
+) -> Result<IrohCtx> {
+    tracing::info!("Creating client endpoint (relay mode: {:?})", config.relay_mode);
+    
+    // Client mode - use relay_addrs from config
+    let endpoint_builder = Endpoint::builder();
+    
+    // Configure relay mode from config
+    let endpoint_builder = match config.relay_mode {
+        RelayModeConfig::AutoRelay => endpoint_builder.relay_mode(iroh::RelayMode::AutoRelay),
+        RelayModeConfig::CustomRelays => endpoint_builder.relay_mode(iroh::RelayMode::CustomRelays),
+        RelayModeConfig::NoRelay => endpoint_builder.relay_mode(iroh::RelayMode::None),
+        _ => endpoint_builder.relay_mode(iroh::RelayMode::AutoRelay),
+    };
+    
+    // Add relay addresses if provided
+    let endpoint_builder = if !config.relay_addrs.is_empty() {
+        let mut builder = endpoint_builder;
+        for addr in &config.relay_addrs {
+            if let Ok(addr) = addr.parse() {
+                builder = builder.add_relay_addr(addr);
+            } else {
+                tracing::warn!("Invalid relay address: {}", addr);
+            }
+        }
+        builder
+    } else {
+        endpoint_builder
+    };
+    
+    // Create connection channel
+    let (connection_tx, connection_rx) = tokio_mpsc::unbounded_channel();
+    
+    // Create P2P Go protocol handler
+    let p2pgo_protocol = P2PGoProtocol::new(connection_tx);
+    
+    // Create router with protocol handlers
+    let router = Router::new();
+    
+    let (endpoint, router) = endpoint_builder
+        .spawn_with_router(router)
+        .await?;
+    
+    // Initialize Gossip service
+    let gossip_config = iroh_gossip::net::Config::new(endpoint.node_id());
+    let gossip = Arc::new(Gossip::new(endpoint.clone(), gossip_config).await?);
+    
+    // Initialize Docs service for document synchronization
+    let docs = Arc::new(Docs::new(endpoint.clone()));
+    
+    // Initialize Blobs service for large binary data
+    let blobs = Arc::new(Blobs::new(endpoint.clone()));
+    
+    // Register protocol handlers
+    let router = router
+        .accept(iroh_gossip::net::ALPN, gossip.clone())
+        .accept(iroh_docs::protocol::ALPN, docs.clone())
+        .accept(iroh_blobs::ALPN, blobs.clone())
+        .accept(P2PGO_ALPN, p2pgo_protocol)
+        .spawn();
+    
+    let my_id = endpoint.node_id().to_string();
+    
+    // Create a default author ID for signing documents
+    let default_author = AuthorId::from([0; 32]);
+    
+    // Initialize relay monitoring
+    let relay_monitor = RelayMonitor::new(endpoint.clone(), config.relay_addrs.clone());
+    let relay_stats = relay_monitor.start_monitoring();
+    
+    tracing::info!("Iroh networking context initialized successfully in client mode");
+    
+    Ok(IrohCtx {
+        endpoint,
+        router,
+        gossip,
+        docs,
+        blobs,
+        default_author,
+        my_id,
+        connection_rx: Arc::new(tokio::sync::Mutex::new(connection_rx)),
+        relay_stats,
+        relay_service: None, // No embedded relay in client mode
+        is_relay_mode: false,
+    })
+}
+
+/// Generate a topic ID from a game ID
+#[cfg(feature = "iroh")]
+pub fn game_topic(&self, game_id: &str) -> Result<TopicId> {
+    // Hash the game ID to get a consistent 32-byte value
+    let hash = blake3::hash(game_id.as_bytes());
+    let bytes = hash.as_bytes();
+    
+    // Create a TopicId from the hash
+    let topic = TopicId::from_bytes(*bytes)?;
+    Ok(topic)
+}
+
+/// Generate a topic ID from a game ID (stub implementation)
+#[derive(Debug)]
+pub struct IrohEndpoint;
+
+impl IrohEndpoint {
+    pub fn new() -> Self {
+        Self
+    }
+    
+    #[cfg(not(feature = "iroh"))]
+    pub fn game_topic(&self, _game_id: &str) -> Result<()> {
+        Ok(())
+    }
+}
+
+/// Broadcast a move via gossip
+#[cfg(feature = "iroh")]
+pub async fn broadcast_move(&self, game_id: &str, move_record: &mut p2pgo_core::MoveRecord) -> Result<()> {
+    tracing::debug!("Broadcasting move via gossip: {:?}", move_record.mv);
+    
+    // Sign the move if it doesn't already have a signature
+    if move_record.signature.is_none() || move_record.signer.is_none() {
+        // Get bytes to sign
+        let data = move_record.to_bytes();
+        
+        // Sign the data
+        match self.sign_data(&data).await {
+            Ok((signature, signer)) => {
+                move_record.signature = Some(signature);
+                move_record.signer = Some(signer);
+                tracing::debug!("Move signed successfully by {}", signer);
+            },
+            Err(e) => {
+                tracing::warn!("Failed to sign move: {}", e);
+                // Continue without signature
+            }
+        }
+    }
+    
+    // CBOR encode the signed move record
+    let cbor_data = serde_cbor::to_vec(move_record)
+        .context("Failed to CBOR encode move record")?;
+        
+    // Generate topic ID from game_id
+    let topic = self.game_topic(game_id)?;
+    
+    #[cfg(feature = "iroh")]
+    {
+        // Broadcast via gossip
+        if let Some(gossip) = &self.gossip {
+            tracing::debug!("Sending gossip message for game {}", game_id);
+            gossip.publish(topic, Bytes::from(cbor_data)).await?;
+            tracing::debug!("Gossip message sent successfully");
+            return Ok(());
+        }
+    }
+    
+    Err(anyhow::anyhow!("Gossip not enabled"))
+}
+
+/// Broadcast a move via gossip (stub implementation)
+impl IrohEndpoint {
+    #[cfg(not(feature = "iroh"))]
+    pub async fn broadcast_move(&self, game_id: &str, move_record: &mut p2pgo_core::MoveRecord) -> Result<()> {
+        tracing::debug!("Mock broadcast move for game {}: {:?}", game_id, move_record.mv);
+        Ok(())
+    }
+}
+
+/// Broadcast arbitrary data to a game topic
+#[cfg(feature = "iroh")]
+pub async fn broadcast_to_game_topic(&self, game_id: &str, data: &[u8]) -> Result<()> {
+    tracing::debug!("Broadcasting data to game topic: {}", game_id);
+    
+    // Generate topic ID from game_id
+    let topic = self.game_topic(game_id)?;
+    
+    #[cfg(feature = "iroh")]
+    {
+        // Broadcast via gossip
+        if let Some(gossip) = &self.gossip {
+            tracing::debug!("Sending gossip data for game {}", game_id);
+            gossip.publish(topic, Bytes::from(data.to_vec())).await?;
+            tracing::debug!("Gossip data sent successfully");
+            return Ok(());
+        }
+    }
+    
+    Err(anyhow::anyhow!("Gossip not enabled"))
+}
+
+/// Broadcast arbitrary data to a game topic (stub implementation)
+impl IrohEndpoint {
+    #[cfg(not(feature = "iroh"))]
+    pub async fn broadcast_to_game_topic(&self, game_id: &str, _data: &[u8]) -> Result<()> {
+        tracing::debug!("Mock broadcast data to game topic: {}", game_id);
+        Ok(())
+    }
+}

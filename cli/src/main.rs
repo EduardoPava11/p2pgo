@@ -6,9 +6,72 @@
 //! the P2P Go game without the UI. It's primarily used for integration
 //! tests and automated testing.
 
+// Initialize logging at the start of the program
+use flexi_logger::{Logger, FileSpec, Naming, Cleanup, Criterion};
+use std::path::PathBuf;
+use anyhow::{Result, anyhow};
+
+// Initialize logging functionality first thing in the program
+fn init_logging() -> Result<()> {
+    // Get log directory
+    let log_dir = match std::env::consts::OS {
+        "macos" => {
+            let mut path = PathBuf::from(std::env::var("HOME")?);
+            path.push("Library");
+            path.push("Logs");
+            path.push("p2pgo-cli");
+            path
+        },
+        _ => {
+            let mut path = PathBuf::from(".");
+            path.push("logs");
+            path
+        }
+    };
+    
+    // Ensure log directory exists
+    std::fs::create_dir_all(&log_dir)?;
+    
+    // Configure and start the logger
+    Logger::try_with_str("info")?
+        .log_to_file(
+            FileSpec::default()
+                .directory(&log_dir)
+                .basename("p2pgo-cli")
+                .suffix("log")
+        )
+        .rotate(
+            Criterion::Size(1024 * 1024 * 1024), // 1GB per file
+            Naming::Timestamps,
+            Cleanup::KeepLogFiles(5), // Keep 5 files
+        )
+        // Process ID is already included in the log format
+        // Error context is added via tracing subscriber
+        .start()?;
+    
+    Ok(())
+}
+
+// Initialize logging as the first action
+#[allow(unused_variables)]
+static LOGGER_INIT: std::sync::Once = std::sync::Once::new();
+
+fn ensure_logging_initialized() -> Result<()> {
+    let mut result = Ok(());
+    LOGGER_INIT.call_once(|| {
+        match init_logging() {
+            Ok(_) => {},
+            Err(e) => {
+                result = Err(e);
+            }
+        }
+    });
+    
+    result
+}
+
 mod render;
 
-use anyhow::{Result, anyhow};
 use clap::{Parser, ValueEnum};
 use tokio::signal;
 use tokio::io::AsyncBufReadExt;
@@ -57,6 +120,14 @@ struct Args {
     /// Connect directly using a ticket string
     #[clap(long)]
     ticket: Option<String>,
+    
+    /// Maximum connections allowed to the relay (default: 200)
+    #[clap(long)]
+    relay_max_conns: Option<usize>,
+    
+    /// Maximum bandwidth in Mbps for the relay (default: 10 MB/s)
+    #[clap(long)]
+    relay_max_mbps: Option<f64>,
 }
 
 /// Role of this instance
@@ -71,6 +142,11 @@ enum Role {
 /// Main entry point
 #[tokio::main]
 async fn main() -> Result<()> {
+    // Initialize logging as the first action in main
+    if let Err(e) = ensure_logging_initialized() {
+        eprintln!("Warning: Failed to initialize logging: {}", e);
+    }
+    
     // Parse command-line arguments
     let args = Args::parse();
     
@@ -417,7 +493,7 @@ fn parse_move(input: &str, board_size: u8) -> Result<Move> {
         
         // Check if the coordinate is valid
         if col < board_size && row < board_size {
-            return Ok(Move::Place(Coord::new(col, row)));
+            return Ok(Move::Place { x: col, y: row, color: Color::Black }); // Color will be overridden by the game
         }
     }
     

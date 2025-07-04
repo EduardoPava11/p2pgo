@@ -6,6 +6,7 @@ use eframe::egui::{self, Color32, Stroke, Pos2, Vec2, Rect};
 use p2pgo_core::{GameState, Color, Coord, Tag};
 use crossbeam_channel::Sender;
 use crate::msg::UiToNet;
+use crate::design_system::get_design_system;
 
 /// Widget for rendering and interacting with a Go board
 pub struct BoardWidget {
@@ -43,6 +44,12 @@ impl BoardWidget {
         
         if ui.is_rect_visible(rect) {
             self.paint_board(ui, rect, game_state);
+            
+            // Store board rect for neural overlay
+            ui.ctx().data_mut(|data| {
+                data.insert_temp(egui::Id::new("board_rect"), rect);
+                data.insert_temp(egui::Id::new("board_cell_size"), self.cell_size);
+            });
         }
         
         // Handle key bindings for tag palette
@@ -150,7 +157,8 @@ impl BoardWidget {
         let painter = ui.painter_at(rect);
         
         // Board background
-        painter.rect_filled(rect, 5.0, Color32::from_rgb(220, 179, 92));
+        let ds = get_design_system();
+        painter.rect_filled(rect, 0.0, ds.colors.board_bg);
         
         let margin = 20.0;
         let board_rect = Rect::from_min_size(
@@ -159,7 +167,7 @@ impl BoardWidget {
         );
         
         // Draw grid lines
-        let line_color = Color32::BLACK;
+        let line_color = ds.colors.grid_line;
         let line_stroke = Stroke::new(1.0, line_color);
         
         for i in 0..self.board_size {
@@ -211,11 +219,11 @@ impl BoardWidget {
                 if let Some(color) = game_state.board.get(idx).and_then(|c| *c) {
                     let pos = self.coord_to_pos(coord, board_rect);
                     let stone_color = match color {
-                        Color::Black => Color32::BLACK,
-                        Color::White => Color32::WHITE,
+                        Color::Black => ds.colors.black_stone,
+                        Color::White => ds.colors.white_stone,
                     };
                     painter.circle_filled(pos, stone_radius, stone_color);
-                    painter.circle_stroke(pos, stone_radius, Stroke::new(1.0, Color32::BLACK));
+                    painter.circle_stroke(pos, stone_radius, Stroke::new(1.0, ds.colors.grid_line));
                 }
             }
         }
@@ -224,8 +232,8 @@ impl BoardWidget {
         for coord in &self.ghost_stones {
             let pos = self.coord_to_pos(*coord, board_rect);
             let ghost_color = match game_state.current_player {
-                Color::Black => Color32::from_rgba_unmultiplied(0, 0, 0, 80),
-                Color::White => Color32::from_rgba_unmultiplied(255, 255, 255, 80),
+                Color::Black => Color32::from_rgba_unmultiplied(10, 10, 10, 80),
+                Color::White => Color32::from_rgba_unmultiplied(245, 245, 245, 80),
             };
             painter.circle_filled(pos, stone_radius * 0.8, ghost_color);
         }

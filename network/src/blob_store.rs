@@ -318,4 +318,35 @@ impl MoveChain {
         
         Ok(())
     }
+
+    /// Get all moves as MoveRecord objects (for testing)
+    #[cfg(test)]
+    pub fn get_all_move_records(&self) -> Vec<p2pgo_core::MoveRecord> {
+        let blobs = self.get_all_blobs();
+        let mut records = Vec::with_capacity(blobs.len());
+        
+        for blob in blobs {
+            // Create a MoveRecord for each blob with proper hash chain
+            let mut record = p2pgo_core::MoveRecord {
+                mv: blob.mv.clone(),
+                tag: None,
+                ts: std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap_or_default()
+                    .as_secs(),
+                broadcast_hash: Some(blob.hash()),
+                prev_hash: blob.prev_hash,
+                signature: None,
+                signer: None,
+                sequence: blob.sequence,
+            };
+            
+            // Calculate the broadcast hash to ensure consistency
+            record.calculate_broadcast_hash();
+            
+            records.push(record);
+        }
+        
+        records
+    }
 }

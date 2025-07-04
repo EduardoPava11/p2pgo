@@ -1,0 +1,35 @@
+# SPDX-License-Identifier: MIT OR Apache-2.0
+
+[package]
+name = "p2pgo-network-fuzz"
+version = "0.0.0"
+authors = ["Automatically generated"]
+publish = false
+edition = "2021"
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+anyhow = "1"
+libfuzzer-sys = { version = "0.4", features = ["arbitrary-derive"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_cbor = "0.11"
+tokio = { version = "1.37", features = ["full", "rt-multi-thread"] }
+
+[dependencies.p2pgo-network]
+path = ".."
+features = ["stub"]  # Use stub network implementation for fuzzing
+
+[dependencies.p2pgo-core]
+path = "../../core"
+
+# Prevent this from interfering with workspaces
+[workspace]
+members = ["."]
+
+[[bin]]
+name = "stack_desync"
+path = "fuzz_targets/stack_desync.rs"
+test = false
+doc = false

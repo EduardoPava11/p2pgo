@@ -19,7 +19,23 @@ thiserror = { workspace = true }
 tracing = { workspace = true }
 uuid = { workspace = true }
 chrono = { workspace = true }
+blake3 = { workspace = true }
+flate2 = "1.0.28"
+ed25519-dalek = { version = "2.1", features = ["serde"] }
+hex = "0.4"
+# ML and WASM dependencies
+burn = { workspace = true, optional = true }
+burn-dataset = { workspace = true, optional = true }
+wasmtime = { workspace = true }
+ciborium = { workspace = true }
+ndarray = { workspace = true }
+parking_lot = { workspace = true }
+base64 = { workspace = true }
+
+[dev-dependencies]
+rand = "0.8"
 
 [features]
-default = []
+default = ["burn"]
 bot = []
+burn = ["dep:burn", "dep:burn-dataset"]

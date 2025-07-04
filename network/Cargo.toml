@@ -11,44 +11,100 @@ homepage = "https://p2pgo.io"
 repository = "https://github.com/danielbank/p2pgo"
 
 [dependencies]
-tokio = { workspace = true }
-serde = { workspace = true }
-anyhow = "1"
-thiserror = { workspace = true }
-tracing = { workspace = true }
-uuid = { workspace = true }
-blake3 = { workspace = true }
-flume = "0.10"
-serde_cbor = { workspace = true }
+# Core networking - libp2p instead of iroh for MVP
+libp2p = { version = "0.53", features = [
+    "kad", "gossipsub", "relay", "dcutr", "identify", 
+    "autonat", "noise", "yamux", "tcp", "dns", "mdns",
+    "request-response", "macros", "tokio"
+]}
+
+# Async runtime
+tokio = { version = "1.35", features = ["full"] }
+
+# Serialization
+serde = { version = "1.0", features = ["derive"] }
+serde_cbor = "0.11"
 serde_json = "1.0"
 bincode = "1.3"
-hex = { workspace = true }
-base64 = { workspace = true }
-bytes = { workspace = true }
-dirs = "5.0"
-futures-lite = "2.0"
+
+# Cryptography
+ed25519-dalek = "2.0"
+blake3 = "1.5"
+
+# Logging
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+# Error handling
+anyhow = "1"
+thiserror = "1.0"
+
+# CLI
+clap = { version = "4.0", features = ["derive"] }
+
+# Time
 chrono = { version = "0.4", features = ["serde"] }
-directories = "5"
+
+# Utils
+uuid = { version = "1.6", features = ["v4"] }
+hex = "0.4"
+base64 = "0.21"
+bytes = "1"
+rand = "0.8"
+futures = "0.3"
+futures-util = "0.3"
+
+# NAT traversal helpers
+igd = "0.12"
+
+# Config
 toml = "0.8"
-iroh = { workspace = true, optional = true, features = ["metrics"] }
-iroh-docs = { workspace = true, optional = true, features = ["engine", "net"] }
-iroh-gossip = { workspace = true, optional = true, features = ["net"] }
-iroh-blobs = { workspace = true, optional = true }
-# We'll use our own core crate
+directories = "5"
+
+# Core P2P Go types
 p2pgo-core = { path = "../core" }
+
+# Optional iroh dependencies
+iroh = { workspace = true, optional = true }
+iroh-docs = { workspace = true, optional = true }
+iroh-gossip = { workspace = true, optional = true }
+iroh-blobs = { workspace = true, optional = true }
+
+# For auto-update
+reqwest = { version = "0.11", features = ["json"] }
+semver = { version = "1.0", features = ["serde"] }
+
+# For relay binary
+# clap already declared above
+
+# For SGF upload UI
+rfd = "0.12"
+humantime-serde = "1.1.1"
+socket2 = "0.5.5"
 
 [features]
 default = ["stub"]
-stub = []
-iroh = [
-    "dep:iroh", 
-    "dep:iroh-docs", 
-    "dep:iroh-gossip", 
-    "dep:iroh-blobs", 
-    "tokio/rt-multi-thread"
-]
 # Enable debug functions for headless testing
 headless = []
+# Enable iroh networking (not fully implemented yet)
+iroh = ["dep:iroh", "dep:iroh-docs", "dep:iroh-gossip", "dep:iroh-blobs"]
+# Enable stub networking for local testing
+stub = []
+
+[[bin]]
+name = "p2pgo-relay"
+path = "src/bin/relay.rs"
+
+[[bin]]
+name = "bootstrap-relay"
+path = "src/bin/bootstrap_relay.rs"
 
 [dev-dependencies]
 tempfile = { workspace = true }
+tokio = { version = "1.37", features = ["full", "test-util"] }
+proptest = "1.4"
+socket2 = "0.5.5"
+futures = "0.3"
+tracing-subscriber = "0.3"
+env_logger = "0.11"
+once_cell = "1.19"

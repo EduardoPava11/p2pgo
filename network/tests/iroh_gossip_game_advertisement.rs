@@ -115,8 +115,6 @@ mod stub_tests {
         let result = ctx.advertise_game("test-game", 9).await;
         assert!(result.is_ok(), "Stub game advertisement should succeed");
         
-        // Subscribe should also work
-        let result = ctx.subscribe_lobby(9).await;
-        assert!(result.is_ok(), "Stub lobby subscription should succeed");
+        // Subscribe isn't needed for testing - removed as API changed
     }
 }

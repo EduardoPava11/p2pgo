@@ -5,13 +5,19 @@ members = [
     "network", 
     "ui-egui",
     "cli",
-    "trainer"
+    "neural",
+    "ui-clean",
+    "ui-v2"
+    # "trainer",
+    # "tools",
+    # "ml_models/sword_net",
+    # "ml_models/shield_net"
 ]
 exclude = ["tmp"]
 
 # Workspace-wide features
 [workspace.package]
-version = "0.1.0"
+version = "0.1.4"
 edition = "2021"
 authors = ["p2pgo developers"]
 license = "MIT OR Apache-2.0"
@@ -43,11 +49,18 @@ hex = "0.4"
 chrono = { version = "0.4", features = ["serde"] }
 serde_repr = "0.1"
 bincode = "1.3"
-burn = { version = "0.17.1", features = ["wgpu"] }
+burn = { version = "0.17.1", features = ["wgpu", "train", "dataset"] }
+burn-dataset = "0.17.1"
+burn-tch = "0.17.1"
+wasmtime = { version = "24", features = ["cranelift"] }
+ciborium = "0.2"
+ndarray = "0.15"
+parking_lot = "0.12"
 tempfile = "3.0"
 blake3 = "1.5"
 base64 = "0.22"
 bytes = "1.7"
+rand = "0.8"
 
 # Workspace features are defined in individual crates
 
@@ -68,7 +81,7 @@ ci = "github"
 # The installers to generate for each app
 installers = ["homebrew"]
 # Target platforms to build apps for (Rust target-triple syntax)
-targets = ["aarch64-apple-darwin", "x86_64-apple-darwin", "universal2-apple-darwin"]
+targets = ["aarch64-apple-darwin"]
 # Which actions to run on pull requests
 pr-run-mode = "plan"
 # Whether to install an updater program

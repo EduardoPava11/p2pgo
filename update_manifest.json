@@ -1,0 +1,64 @@
+{
+  "latest_version": {
+    "major": 0,
+    "minor": 2,
+    "patch": 0,
+    "pre_release": null
+  },
+  "minimum_version": null,
+  "channels": [
+    {
+      "name": "stable",
+      "version": {
+        "major": 0,
+        "minor": 2,
+        "patch": 0,
+        "pre_release": null
+      },
+      "update": {
+        "download_url": "https://github.com/example/p2pgo/releases/download/v0.2.0/P2P-Go-0.2.0.dmg",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "size": 52428800,
+        "release_notes": "## What's New in v0.2.0\n\n- Improved network connectivity\n- Added support for larger board sizes\n- Fixed scoring edge cases\n- Performance improvements\n- Better error handling\n\n## Bug Fixes\n\n- Fixed crash when disconnecting during game\n- Resolved UI freezing issues\n- Corrected stone capture logic",
+        "release_date": "2025-01-02T12:00:00Z",
+        "supports_in_place": false,
+        "platforms": [
+          {
+            "platform": "macos",
+            "arch": "x86_64",
+            "download_url": "https://github.com/example/p2pgo/releases/download/v0.2.0/P2P-Go-0.2.0-x64.dmg",
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "notes": "Requires macOS 10.15 or later"
+          },
+          {
+            "platform": "macos", 
+            "arch": "aarch64",
+            "download_url": "https://github.com/example/p2pgo/releases/download/v0.2.0/P2P-Go-0.2.0-arm64.dmg",
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "notes": "Native Apple Silicon support"
+          }
+        ]
+      }
+    },
+    {
+      "name": "beta",
+      "version": {
+        "major": 0,
+        "minor": 3,
+        "patch": 0,
+        "pre_release": "beta.1"
+      },
+      "update": {
+        "download_url": "https://github.com/example/p2pgo/releases/download/v0.3.0-beta.1/P2P-Go-0.3.0-beta.1.dmg",
+        "sha256": "d4735e3a265e16eee03f59718b9b5d03019c07d8b6c51f90da3a666eec13ab35",
+        "size": 55574528,
+        "release_notes": "## Beta Release v0.3.0-beta.1\n\n### New Features\n- Experimental AI opponent\n- Game replay functionality\n- Tournament mode (beta)\n\n### Known Issues\n- AI may occasionally make suboptimal moves\n- Tournament mode UI is still being refined",
+        "release_date": "2025-01-01T12:00:00Z",
+        "supports_in_place": true,
+        "platforms": []
+      }
+    }
+  ],
+  "announcement": "Happy New Year! Check out our new beta features including AI opponents and tournament mode.",
+  "schema_version": 1
+}

@@ -2,30 +2,72 @@
 
 //! Network diagnostics panel for P2P Go
 
-use std::sync::Arc;
 use std::collections::HashMap;
 use std::time::Instant;
 use eframe::egui;
-use egui_plot::{Plot, Line, PlotPoints, Bar, BarChart};
 use petgraph::graph::{Graph, NodeIndex};
 use petgraph::Directed;
 
 #[cfg(feature = "iroh")]
-use p2pgo_network::relay_monitor::{RelayStats, RelayHealth};
+use p2pgo_network::relay_monitor::{RelayStats, RelayHealth, RelayHealthStatus, RelayHealthEvent};
+
+/// Network connection state machine
+#[derive(Debug, Clone, PartialEq)]
+pub enum NetworkState {
+    /// No network connection
+    Offline,
+    /// Starting or restarting relay
+    StartingRelay,
+    /// Synchronizing with network
+    Syncing,
+    /// Fully online with healthy connection
+    Online,
+    /// Online but with degraded performance
+    Degraded,
+}
+
+impl Default for NetworkState {
+    fn default() -> Self {
+        NetworkState::Offline
+    }
+}
 
 /// Network diagnostics panel
 pub struct NetworkPanel {
     #[cfg(feature = "iroh")]
     relay_stats: Option<Arc<tokio::sync::RwLock<HashMap<String, RelayStats>>>>,
     
+    #[cfg(feature = "iroh")]
+    relay_health: Option<RelayHealth>,
+    
+    // Port the relay is listening on
+    relay_port: Option<u16>,
+    
+    // Network state
+    network_state: NetworkState,
+    state_start_time: Instant,
+    
     // UI state
     visible: bool,
     show_relay_details: bool,
+    show_advanced_panel: bool,
+    bootstrap_relays: String,
     latency_history: HashMap<String, Vec<(f64, f64)>>, // (time, latency) pairs
     last_update: Instant,
     
     // Connection graph
     connection_graph: ConnectionGraph,
+    
+    // Relay status display
+    relay_health_status: Option<p2pgo_network::relay_monitor::RelayHealthStatus>,
+    is_relay_node: bool,
+    
+    // Advanced panel
+    restart_network_requested: bool,
+    
+    // Relay capacity info
+    relay_active_connections: Option<usize>,
+    relay_connection_limit: Option<usize>,
 }
 
 impl Default for NetworkPanel {
@@ -40,11 +82,26 @@ impl NetworkPanel {
             #[cfg(feature = "iroh")]
             relay_stats: None,
             
+            #[cfg(feature = "iroh")]
+            relay_health: None,
+            
+            relay_port: None,
+            
+            network_state: NetworkState::Offline,
+            state_start_time: Instant::now(),
+            
             visible: false,
             show_relay_details: false,
+            show_advanced_panel: false,
+            bootstrap_relays: String::new(),
             latency_history: HashMap::new(),
             last_update: Instant::now(),
             connection_graph: ConnectionGraph::new(),
+            relay_health_status: None,
+            is_relay_node: false,
+            restart_network_requested: false,
+            relay_active_connections: None,
+            relay_connection_limit: None,
         }
     }
     
@@ -65,7 +122,7 @@ impl NetworkPanel {
     }
     
     /// Update panel with new data
-    pub fn update_stats(&mut self, ctx: &egui::Context) {
+    pub fn update_stats(&mut self, _ctx: &egui::Context) {
         #[cfg(feature = "iroh")]
         if let Some(relay_stats) = &self.relay_stats {
             // Try to read stats without blocking
@@ -89,8 +146,21 @@ impl NetworkPanel {
                 self.last_update = now;
                 
                 // Request repaint if we have new data
-                ctx.request_repaint();
+                _ctx.request_repaint();
             }
+        }
+    }
+    
+    /// Run this every frame to update UI elements
+    pub fn update_ui(&mut self, ctx: &egui::Context) {
+        // Update stats from the relay_stats source if available
+        if self.is_visible() {
+            self.update_stats(ctx);
+        }
+        
+        // If panel is visible, request repaint
+        if self.is_visible() {
+            ctx.request_repaint();
         }
     }
     
@@ -98,16 +168,66 @@ impl NetworkPanel {
     pub fn draw_status_badge(&mut self, ui: &mut egui::Ui) {
         let (status_text, status_color) = self.get_overall_status();
         
-        let button = egui::Button::new(format!("Relay: {}", status_text))
+        // Create badge label with relay info if needed
+        let badge_text = if self.is_relay_node {
+            #[cfg(feature = "iroh")]
+            let text = if let Some(port) = self.relay_port {
+                format!("Relay:{} {}", port, status_text)
+            } else {
+                format!("Relay: {}", status_text)
+            };
+            #[cfg(not(feature = "iroh"))]
+            let text = format!("Relay: {}", status_text);
+            text
+        } else {
+            format!("Relay: {}", status_text)
+        };
+        
+        let button = egui::Button::new(badge_text)
             .fill(status_color)
             .rounding(egui::Rounding::same(4.0));
         
-        if ui.add(button).clicked() {
+        let response = ui.add(button);
+        if response.clicked() {
             self.toggle_visibility();
         }
         
         // Tooltip with quick stats
-        if ui.response().hovered() {
+        if response.hovered() {
+            // First check direct relay status
+            if let Some(status) = &self.relay_health_status {
+                use p2pgo_network::relay_monitor::RelayHealthStatus;
+                
+                let status_desc = match status {
+                    RelayHealthStatus::Healthy => "Healthy",
+                    RelayHealthStatus::Degraded => "Degraded",
+                    RelayHealthStatus::Unreachable => "Unreachable",
+                    RelayHealthStatus::Restarting => "Restarting",
+                    RelayHealthStatus::Failed => "Failed",
+                };
+                
+                let mut tooltip_text = format!("Relay status: {}\n", status_desc);
+                
+                // Add port info if available
+                #[cfg(feature = "iroh")]
+                if let Some(port) = self.relay_port {
+                    tooltip_text.push_str(&format!("Port: {}\n", port));
+                }
+                
+                // Add extra info for relay nodes
+                if self.is_relay_node {
+                    tooltip_text.push_str("Mode: Embedded relay\n");
+                    tooltip_text.push_str("Click for detailed status");
+                } else {
+                    tooltip_text.push_str("Mode: Client\n");
+                    tooltip_text.push_str("Click for relay diagnostics");
+                }
+                
+                ui.label(&tooltip_text);
+                return;
+            }
+            
+            // Fall back to relay stats collection
             #[cfg(feature = "iroh")]
             if let Some(relay_stats) = &self.relay_stats {
                 if let Ok(stats) = relay_stats.try_read() {
@@ -154,13 +274,15 @@ impl NetworkPanel {
             return;
         }
         
+        let mut visible = self.visible;
         egui::Window::new("Network Diagnostics")
-            .open(&mut self.visible)
+            .open(&mut visible)
             .resizable(true)
             .default_size([800.0, 600.0])
             .show(ctx, |ui| {
                 self.draw_content(ui);
             });
+        self.visible = visible;
     }
     
     fn draw_content(&mut self, ui: &mut egui::Ui) {
@@ -324,7 +446,111 @@ impl NetworkPanel {
         }
     }
     
+    /// Draw the advanced networking UI panel
+    pub fn draw_advanced_panel(&mut self, ui: &mut egui::Ui) -> Option<crate::msg::UiToNet> {
+        let mut action = None;
+        
+        egui::CollapsingHeader::new("Advanced Networking")
+            .id_source("advanced_networking")
+            .default_open(false)
+            .show(ui, |ui| {
+                ui.add_space(8.0);
+                
+                // Network status
+                ui.heading("Network Status");
+                ui.horizontal(|ui| {
+                    self.draw_network_badge(ui);
+                });
+                ui.add_space(8.0);
+                
+                // Relay config
+                ui.heading("Relay Configuration");
+                ui.horizontal(|ui| {
+                    ui.label("Mode:");
+                    if self.is_relay_node {
+                        ui.label("Self-Hosted Relay");
+                    } else {
+                        ui.label("Client (Using External Relay)");
+                    }
+                });
+                
+                if let Some(port) = self.relay_port {
+                    ui.horizontal(|ui| {
+                        ui.label("Relay Port:");
+                        ui.monospace(port.to_string());
+                    });
+                }
+                
+                // Bootstrap relays
+                ui.separator();
+                ui.label("Bootstrap Relays (one per line):");
+                let text_edit = ui.add_enabled(
+                    !self.is_relay_node, 
+                    egui::TextEdit::multiline(&mut self.bootstrap_relays)
+                        .desired_width(f32::INFINITY)
+                        .desired_rows(3)
+                        .hint_text("Enter bootstrap relay addresses, one per line")
+                );
+                
+                if text_edit.changed() {
+                    // Validate addresses when changed
+                }
+                
+                ui.horizontal(|ui| {
+                    if ui.button("Apply Bootstrap Relays").clicked() {
+                        // Generate config JSON
+                        let config_json = format!(
+                            r#"{{
+                                "relay_mode": "CustomRelays",
+                                "relay_addrs": [{}]
+                            }}"#,
+                            self.bootstrap_relays
+                                .lines()
+                                .filter(|l| !l.trim().is_empty())
+                                .map(|a| format!("\"{}\"", a.trim()))
+                                .collect::<Vec<_>>()
+                                .join(",")
+                        );
+                        
+                        action = Some(crate::msg::UiToNet::SaveConfigAndRestart {
+                            config_json
+                        });
+                    }
+                    
+                    if ui.button("Restart Network").clicked() {
+                        action = Some(crate::msg::UiToNet::RestartNetwork);
+                    }
+                });
+            });
+            
+        action
+    }
+    
     fn get_overall_status(&self) -> (&'static str, egui::Color32) {
+        // First check direct relay health status
+        if let Some(status) = &self.relay_health_status {
+            use p2pgo_network::relay_monitor::RelayHealthStatus;
+            
+            match status {
+                RelayHealthStatus::Healthy => {
+                    return ("🟢", egui::Color32::from_rgb(0, 158, 115)); // Okabe-Ito Green
+                },
+                RelayHealthStatus::Degraded => {
+                    return ("🟠", egui::Color32::from_rgb(230, 159, 0)); // Okabe-Ito Orange
+                },
+                RelayHealthStatus::Unreachable => {
+                    return ("🔴", egui::Color32::from_rgb(213, 94, 0)); // Okabe-Ito Vermillion
+                },
+                RelayHealthStatus::Restarting => {
+                    return ("🔄", egui::Color32::from_rgb(0, 114, 178)); // Okabe-Ito Blue
+                },
+                RelayHealthStatus::Failed => {
+                    return ("❌", egui::Color32::from_rgb(213, 94, 0)); // Okabe-Ito Vermillion
+                },
+            }
+        }
+        
+        // Fall back to relay stats collection if direct status not available
         #[cfg(feature = "iroh")]
         if let Some(relay_stats) = &self.relay_stats {
             if let Ok(stats) = relay_stats.try_read() {
@@ -332,18 +558,191 @@ impl NetworkPanel {
                 let online = stats.values().filter(|s| s.is_reachable).count();
                 
                 if total == 0 {
-                    return ("No relays", egui::Color32::GRAY);
+                    // Bootstrap mode - no relays configured yet
+                    return ("🟡", egui::Color32::from_rgb(240, 228, 66)); // Okabe-Ito Yellow
                 } else if online == 0 {
-                    return ("❌", egui::Color32::RED);
+                    // All relays unreachable
+                    return ("🔴", egui::Color32::from_rgb(213, 94, 0)); // Okabe-Ito Vermillion
                 } else if online == total {
-                    return ("✅", egui::Color32::GREEN);
+                    // All relays healthy
+                    return ("🟢", egui::Color32::from_rgb(0, 158, 115)); // Okabe-Ito Green
                 } else {
-                    return ("⚠️", egui::Color32::YELLOW);
+                    // Some relays degraded
+                    return ("🟠", egui::Color32::from_rgb(230, 159, 0)); // Okabe-Ito Orange
                 }
             }
         }
         
-        ("Unknown", egui::Color32::GRAY)
+        // Unknown/default state
+        ("❓", egui::Color32::GRAY)
+    }
+    
+    /// Update the relay health status
+    #[cfg(feature = "iroh")]
+    pub fn update_relay_health(&mut self, status: RelayHealthStatus, port: Option<u16>) {
+        self.relay_health_status = Some(status.clone());
+        self.relay_port = port;
+        
+        // Update network state based on relay health
+        match status {
+            RelayHealthStatus::Healthy => {
+                if self.network_state == NetworkState::Syncing {
+                    // Stay in syncing state until explicitly changed
+                } else {
+                    self.network_state = NetworkState::Online;
+                }
+            },
+            RelayHealthStatus::Degraded => {
+                self.network_state = NetworkState::Degraded;
+            },
+            RelayHealthStatus::Restarting => {
+                self.network_state = NetworkState::StartingRelay;
+                self.state_start_time = Instant::now();
+            },
+            RelayHealthStatus::Unreachable | RelayHealthStatus::Failed => {
+                self.network_state = NetworkState::Offline;
+            },
+        }
+    }
+    
+    /// Set relay node flag
+    pub fn set_is_relay_node(&mut self, is_relay: bool) {
+        self.is_relay_node = is_relay;
+    }
+    
+    /// Update relay capacity information
+    pub fn update_relay_capacity(&mut self, active_connections: usize, connection_limit: usize) {
+        self.relay_active_connections = Some(active_connections);
+        self.relay_connection_limit = Some(connection_limit);
+    }
+    
+    /// Get the current network state
+    pub fn network_state(&self) -> &NetworkState {
+        &self.network_state
+    }
+    
+    /// Set network state to syncing
+    pub fn set_syncing(&mut self) {
+        self.network_state = NetworkState::Syncing;
+        self.state_start_time = Instant::now();
+    }
+    
+    /// Check if this node is acting as a relay
+    pub fn is_relay_node(&self) -> bool {
+        self.is_relay_node
+    }
+    
+    /// Set network state to online
+    pub fn set_online(&mut self) {
+        self.network_state = NetworkState::Online;
+    }
+    
+    /// Get a color for the current network state
+    pub fn network_state_color(&self) -> egui::Color32 {
+        use p2pgo_core::color_constants::{network_status, f32_to_u8_rgb};
+        
+        let rgb = match self.network_state {
+            NetworkState::Offline => network_status::OFFLINE,
+            NetworkState::StartingRelay => network_status::CONNECTING,
+            NetworkState::Syncing => network_status::SYNCING,
+            NetworkState::Online => network_status::CONNECTED,
+            NetworkState::Degraded => network_status::WARNING,
+        };
+        
+        let rgb_u8 = f32_to_u8_rgb(rgb);
+        egui::Color32::from_rgb(rgb_u8[0], rgb_u8[1], rgb_u8[2])
+    }
+    
+    /// Get a descriptive message for the current network state
+    pub fn network_state_message(&self) -> &'static str {
+        match self.network_state {
+            NetworkState::Offline => "Network offline",
+            NetworkState::StartingRelay => "Starting relay...",
+            NetworkState::Syncing => "Syncing with network...",
+            NetworkState::Online => "Connected",
+            NetworkState::Degraded => "Connected (degraded)",
+        }
+    }
+    
+    /// Draw a network status badge
+    pub fn draw_network_badge(&self, ui: &mut egui::Ui) {
+        let color = self.network_state_color();
+        let message = self.network_state_message();
+        
+        // Draw a colored circle indicator
+        let radius = 6.0;
+        let (rect, _) = ui.allocate_exact_size(egui::Vec2::new(radius * 2.0, radius * 2.0), egui::Sense::hover());
+        ui.painter().circle_filled(
+            rect.center(),
+            radius,
+            color,
+        );
+        
+        // Add a small gap
+        ui.add_space(4.0);
+        
+        // Show the port if available
+        if let Some(port) = self.relay_port {
+            let port_text = format!("{}:{}", message, port);
+            ui.label(port_text);
+        } else {
+            ui.label(message);
+        }
+        
+        // Show a spinner when starting or syncing
+        match self.network_state {
+            NetworkState::StartingRelay | NetworkState::Syncing => {
+                ui.add_space(4.0);
+                ui.spinner();
+            },
+            _ => {}
+        }
+    }
+    
+    /// Draw network status with tooltip
+    pub fn draw_network_status_with_tooltip(&self, ui: &mut egui::Ui) {
+        let response = ui.horizontal(|ui| {
+            self.draw_network_badge(ui);
+        });
+        
+        response.response.on_hover_ui(|ui| {
+            ui.label(self.get_network_tooltip());
+        });
+    }
+    
+    /// Get detailed tooltip for network status
+    fn get_network_tooltip(&self) -> String {
+        #[cfg(feature = "iroh")]
+        if let Some(status) = &self.relay_health_status {
+            let status_text = match status {
+                RelayHealthStatus::Healthy => "healthy",
+                RelayHealthStatus::Degraded => "degraded",
+                RelayHealthStatus::Unreachable => "unreachable",
+                RelayHealthStatus::Restarting => "restarting",
+                RelayHealthStatus::Failed => "failed",
+            };
+            
+            let mut tooltip = format!("Network Status: {}\n", status_text);
+            
+            if self.is_relay_node {
+                tooltip.push_str("Mode: Self-Hosted Relay\n");
+            } else {
+                tooltip.push_str("Mode: Client\n");
+            }
+            
+            if let Some(port) = self.relay_port {
+                tooltip.push_str(&format!("Port: {}\n", port));
+            }
+            
+            if self.network_state == NetworkState::StartingRelay || self.network_state == NetworkState::Syncing {
+                let elapsed = self.state_start_time.elapsed();
+                tooltip.push_str(&format!("Time in state: {:.1}s", elapsed.as_secs_f32()));
+            }
+            
+            return tooltip;
+        }
+        
+        "Network Status: Unknown".to_string()
     }
 }
 

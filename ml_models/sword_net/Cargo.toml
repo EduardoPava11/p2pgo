@@ -1,0 +1,25 @@
+[package]
+name = "sword_net"
+version = "0.1.0"
+edition = "2021"
+authors = ["p2pgo developers"]
+description = "Sword network - offensive/black Alpha Go WASM module"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+serde = { workspace = true, features = ["derive"] }
+rand = { workspace = true }
+
+# WASM-specific dependencies
+wasm-bindgen = "0.2"
+
+# Neural network inference (lightweight for WASM)
+ndarray = { workspace = true }
+
+# CBOR encoding for deterministic I/O
+ciborium = { workspace = true }
+
+# For WASM random number generation
+getrandom = { version = "0.2", features = ["js"] }

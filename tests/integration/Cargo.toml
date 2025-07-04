@@ -1,0 +1,26 @@
+[package]
+name = "p2pgo-integration-tests"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+tokio = { version = "1.35", features = ["full", "test-util"] }
+libp2p = { version = "0.53", features = ["tokio", "tcp", "noise", "yamux", "mdns", "kad", "gossipsub", "relay", "dcutr", "identify"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+serde_cbor = "0.11"
+anyhow = "1.0"
+tracing = "0.1"
+tracing-subscriber = "0.3"
+tempfile = "3.0"
+candle-core = "0.3"
+candle-nn = "0.3"
+
+# Local dependencies
+p2pgo-core = { path = "../../core" }
+p2pgo-network = { path = "../../network" }
+p2pgo-neural = { path = "../../neural" }
+p2pgo-sgf = { path = "../../sgf" }
+
+[dev-dependencies]
+criterion = "0.5"

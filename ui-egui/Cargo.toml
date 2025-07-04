@@ -46,17 +46,63 @@ clap = { version = "4", features = ["derive"] }
 serde_json = "1.0"
 serde_cbor = "0.11"
 burn = { workspace = true, features = ["wgpu"] }
+libp2p = { version = "0.53", features = ["kad", "gossipsub", "relay"] }
 # Internal crates
 p2pgo-core = { path = "../core" }
 p2pgo-network = { path = "../network" }
+p2pgo-neural = { path = "../neural" }
 trainer = { path = "../trainer" }
 # Logging
 flexi_logger = { version = "0.25", features = ["async", "compress"] }
 tracing-error = "0.2"
+# Clipboard support
+arboard = { version = "3.3", optional = true }
+# Additional UI components
+egui_extras = "0.23"
+env_logger = "0.10"
+rand = "0.8"
+chrono = "0.4"
+rfd = "0.12"
+dirs = "5.0"
+# HTTP client for update checking
+reqwest = { version = "0.11", features = ["json"], optional = true }
 
 [features]
-default = ["native", "stub"]
-native = ["eframe/glow"]
+default = ["native", "stub", "arboard", "reqwest"]
+native = ["eframe/default"]
 headless = ["p2pgo-network/headless"]
 iroh = ["p2pgo-network/iroh"]
 stub = ["p2pgo-network/stub"]
+offline = []
+
+[[bin]]
+name = "simple_ui"
+path = "src/bin/simple_ui.rs"
+
+[[bin]]
+name = "p2pgo_main"
+path = "src/bin/p2pgo_main.rs"
+
+[[bin]]
+name = "offline_game"
+path = "src/bin/offline_game.rs"
+required-features = ["native"]
+
+[[bin]]
+name = "go3d"
+path = "src/bin/go3d.rs"
+required-features = ["native"]
+
+[[bin]]
+name = "lichess_ui"
+path = "src/bin/lichess_ui.rs"
+required-features = ["native"]
+
+[[bin]]
+name = "p2pgo_clean"
+path = "src/bin/p2pgo_clean.rs"
+required-features = ["native"]
+
+[[bin]]
+name = "p2pgo_fixed"
+path = "src/bin/p2pgo_fixed.rs"

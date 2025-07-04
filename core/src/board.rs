@@ -99,6 +99,16 @@ impl Board {
         self.positions[idx] = None;
         true
     }
+    
+    /// Calculate a hash of the current board position
+    pub fn position_hash(&self) -> u64 {
+        use std::hash::{Hash, Hasher};
+        use std::collections::hash_map::DefaultHasher;
+        
+        let mut hasher = DefaultHasher::new();
+        self.positions.hash(&mut hasher);
+        hasher.finish()
+    }
 }
 
 

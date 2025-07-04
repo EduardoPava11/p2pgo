@@ -10,9 +10,15 @@ pub struct NetworkConfig {
     pub relay_addrs: Vec<String>,
     #[serde(default = "default_gossip_buffer_size")]
     pub gossip_buffer_size: usize,
+    /// Maximum number of connections allowed to the relay (default: 200)
+    #[serde(default = "default_relay_max_conn")]
+    pub relay_max_conn: usize,
+    /// Maximum bandwidth allowed for the relay in Mbps (default: 10 MB/s)
+    #[serde(default = "default_relay_max_mbps")]
+    pub relay_max_mbps: f64,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "lowercase")]
 pub enum RelayModeConfig {
     Default,
@@ -24,6 +30,14 @@ fn default_gossip_buffer_size() -> usize {
     256
 }
 
+fn default_relay_max_conn() -> usize {
+    200
+}
+
+fn default_relay_max_mbps() -> f64 {
+    10.0
+}
+
 impl Default for NetworkConfig {
     fn default() -> Self {
         Self {
@@ -32,6 +46,8 @@ impl Default for NetworkConfig {
                 "/dns4/use1-1.relay.iroh.network/tcp/443/quic-v1/p2p/12D3KooWAzmS7BFMw7A1h35QJT2PzG5EbBTnmTDsRvyXNvzkCwj5".to_string(),
             ],
             gossip_buffer_size: default_gossip_buffer_size(),
+            relay_max_conn: default_relay_max_conn(),
+            relay_max_mbps: default_relay_max_mbps(),
         }
     }
 }

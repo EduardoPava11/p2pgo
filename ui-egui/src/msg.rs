@@ -45,6 +45,12 @@ pub enum UiToNet {
     AcceptScore { 
         score_proof: p2pgo_core::value_labeller::ScoreProof 
     },
+    /// Save new network configuration and restart networking
+    SaveConfigAndRestart { 
+        config_json: String 
+    },
+    /// Force restart the network layer
+    RestartNetwork,
 }
 
 /// Messages sent from Network worker to UI
@@ -86,7 +92,7 @@ pub enum NetToUi {
     ScoreAcceptedByBoth {
         score_proof: p2pgo_core::value_labeller::ScoreProof,
     },
-    /// Score acceptance timed out (3 minutes)
+    /// Score timeout (3 minutes)
     ScoreTimeout {
         board_size: u8,
     },
@@ -95,6 +101,34 @@ pub enum NetToUi {
         game_id: String,
         host_id: String,
         board_size: u8,
+    },
+    /// Network layer is restarting (relay restart, config change, etc.)
+    NetRestarting {
+        reason: String,
+    },
+    /// Network layer restart completed
+    NetRestartCompleted,
+    /// Relay health status update
+    RelayHealth {
+        /// Overall health status (Healthy, Degraded, Restarting, etc.)
+        status: p2pgo_network::relay_monitor::RelayHealthStatus,
+        /// Port the relay is listening on (if any)
+        port: Option<u16>,
+        /// Is this node acting as a relay
+        is_relay_node: bool,
+        /// Last restart time, if applicable
+        last_restart: Option<std::time::SystemTime>,
+    },
+    /// Relay capacity status update (current connections / bandwidth)
+    RelayCapacity {
+        /// Current number of connections
+        current_connections: usize,
+        /// Maximum allowed connections
+        max_connections: usize,
+        /// Current bandwidth usage in Mbps
+        current_bandwidth_mbps: f64,
+        /// Maximum allowed bandwidth in Mbps
+        max_bandwidth_mbps: f64,
     },
 }
 

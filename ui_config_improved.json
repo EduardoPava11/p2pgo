@@ -1,0 +1,176 @@
+{
+  "window": {
+    "title": "P2P Go",
+    "initial_size": [1200.0, 800.0],
+    "min_size": [800.0, 600.0],
+    "max_size": null,
+    "padding": 8.0,
+    "background_color": {
+      "r": 26,
+      "g": 26,
+      "b": 26,
+      "a": 255
+    }
+  },
+  "board": {
+    "size": 700.0,
+    "margin": 20.0,
+    "grid_color": {
+      "r": 200,
+      "g": 200,
+      "b": 200,
+      "a": 255
+    },
+    "grid_line_width": 1.5,
+    "star_point_radius": 4.0,
+    "background_color": {
+      "r": 45,
+      "g": 45,
+      "b": 45,
+      "a": 255
+    },
+    "stone_radius_ratio": 0.48,
+    "stone_outline_width": 1.0,
+    "black_stone_color": {
+      "r": 20,
+      "g": 20,
+      "b": 20,
+      "a": 255
+    },
+    "white_stone_color": {
+      "r": 240,
+      "g": 240,
+      "b": 240,
+      "a": 255
+    },
+    "last_move_marker_ratio": 0.3,
+    "show_coordinates": true,
+    "coordinate_font_size": 14.0
+  },
+  "button": {
+    "font_family": "Inter",
+    "font_size": 16.0,
+    "text_color": {
+      "r": 255,
+      "g": 255,
+      "b": 255,
+      "a": 255
+    },
+    "background_color": {
+      "r": 45,
+      "g": 45,
+      "b": 45,
+      "a": 255
+    },
+    "hover_color": {
+      "r": 65,
+      "g": 65,
+      "b": 65,
+      "a": 255
+    },
+    "click_color": {
+      "r": 85,
+      "g": 85,
+      "b": 85,
+      "a": 255
+    },
+    "border_color": {
+      "r": 100,
+      "g": 100,
+      "b": 100,
+      "a": 255
+    },
+    "border_width": 1.5,
+    "corner_radius": 6.0,
+    "padding": [16.0, 10.0],
+    "min_size": [100.0, 40.0],
+    "shadow_offset": null,
+    "shadow_color": {
+      "r": 0,
+      "g": 0,
+      "b": 0,
+      "a": 0
+    }
+  },
+  "territory": {
+    "marker_type": "Square",
+    "marker_size_ratio": 0.3,
+    "black_territory_color": {
+      "r": 0,
+      "g": 0,
+      "b": 0,
+      "a": 160
+    },
+    "white_territory_color": {
+      "r": 255,
+      "g": 255,
+      "b": 255,
+      "a": 160
+    },
+    "neutral_color": {
+      "r": 128,
+      "g": 128,
+      "b": 128,
+      "a": 100
+    },
+    "outline_width": 1.0,
+    "animation_duration": 150,
+    "show_count": true
+  },
+  "fonts": {
+    "ui_font": "Inter",
+    "mono_font": "JetBrains Mono",
+    "bold_weight": 700.0,
+    "line_height": 1.3
+  },
+  "colors": {
+    "primary": {
+      "r": 220,
+      "g": 50,
+      "b": 50,
+      "a": 255
+    },
+    "secondary": {
+      "r": 100,
+      "g": 200,
+      "b": 100,
+      "a": 255
+    },
+    "success": {
+      "r": 100,
+      "g": 220,
+      "b": 100,
+      "a": 255
+    },
+    "warning": {
+      "r": 255,
+      "g": 200,
+      "b": 100,
+      "a": 255
+    },
+    "error": {
+      "r": 255,
+      "g": 100,
+      "b": 100,
+      "a": 255
+    },
+    "info": {
+      "r": 100,
+      "g": 200,
+      "b": 255,
+      "a": 255
+    },
+    "text_light": {
+      "r": 255,
+      "g": 255,
+      "b": 255,
+      "a": 255
+    },
+    "text_dark": {
+      "r": 220,
+      "g": 220,
+      "b": 220,
+      "a": 255
+    }
+  }
+}

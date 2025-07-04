@@ -34,6 +34,8 @@ pub enum View {
         score_pending: bool,
         score_accepted: bool,
     },
+    /// Offline game mode for testing
+    OfflineGame,
 }
 
 impl Default for View {

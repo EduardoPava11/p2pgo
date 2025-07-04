@@ -1,5 +1,9 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
+#![deny(warnings)]
+#![deny(unsafe_code)]
+#![deny(clippy::all)]
+
 //! P2P Go Core - Game Rules and Board Logic
 //!
 //! This crate provides the core game functionality including:
@@ -8,20 +12,24 @@
 //! - SGF (Smart Game Format) parsing and generation
 //! - CBOR serialization helpers for game state
 
-#![deny(unsafe_code)]
-#![deny(clippy::all)]
-
 pub mod board;
 pub mod rules;
 pub mod sgf;
+pub mod sgf_parser;
 pub mod cbor;
 pub mod engine;
 pub mod value_labeller;
 pub mod scoring;
 pub mod archiver;
+pub mod color_constants;
+pub mod burn_engine;
+pub mod training_pipeline;
+pub mod ko_detector;
+pub mod ko_generator;
 
 use serde::{Serialize, Deserialize};
 use thiserror::Error;
+use crate::board::Board;
 
 /// Player color in a Go game (Black or White)
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -87,19 +95,36 @@ impl Coord {
 }
 
 /// Represents a move in the game
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum Move {
     /// Place a stone at the specified coordinate
-    Place(Coord),
+    Place { x: u8, y: u8, color: Color },
     /// Pass the turn
     Pass,
     /// Resign the game
     Resign,
 }
 
+/// Game result
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub enum GameResult {
+    /// Black wins by score
+    BlackWin(f32),
+    /// White wins by score
+    WhiteWin(f32),
+    /// Black wins by resignation
+    BlackWinByResignation,
+    /// White wins by resignation
+    WhiteWinByResignation,
+    /// Draw (very rare in Go)
+    Draw,
+}
+
 /// Represents the current state of a Go game
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GameState {
+    /// Unique game identifier
+    pub id: String,
     /// The size of the board (typically 9, 13, or 19)
     pub board_size: u8,
     /// The current board positions
@@ -112,6 +137,8 @@ pub struct GameState {
     pub pass_count: u8,
     /// Captured stones count for each player
     pub captures: (u16, u16), // (Black captures, White captures)
+    /// Game result (if finished)
+    pub result: Option<GameResult>,
 }
 
 impl GameState {
@@ -119,31 +146,76 @@ impl GameState {
     pub fn new(board_size: u8) -> Self {
         let board_cells = (board_size as usize) * (board_size as usize);
         Self {
+            id: uuid::Uuid::new_v4().to_string(),
             board_size,
             board: vec![None; board_cells],
             current_player: Color::Black, // Black goes first
             moves: Vec::new(),
             pass_count: 0,
             captures: (0, 0),
+            result: None,
         }
     }
     
     /// Apply a move to the game state
-    pub fn apply_move(&mut self, mv: Move) -> Result<(), GameError> {
-        // TODO: implement ko / suicide checks
+    pub fn apply_move(&mut self, mv: Move) -> Result<Vec<GameEvent>, GameError> {
+        let mut events = Vec::new();
+        
         match mv {
-            Move::Place(coord) => {
-                if !coord.is_valid(self.board_size) {
+            Move::Place { x, y, color } => {
+                if x >= self.board_size || y >= self.board_size {
                     return Err(GameError::InvalidCoordinate);
                 }
                 
-                let idx = (coord.y as usize) * (self.board_size as usize) + (coord.x as usize);
+                let coord = Coord::new(x, y);
+                let idx = (y as usize) * (self.board_size as usize) + (x as usize);
                 if self.board[idx].is_some() {
                     return Err(GameError::OccupiedPosition);
                 }
                 
+                // Create board for rules checking
+                let mut board = self.to_board();
+                let prev_board = board.clone();
+                
+                // Check if move is valid (suicide, ko)
+                {
+                    let validator = crate::rules::RuleValidator::new(&board, &prev_board);
+                    validator.check_move(coord, color)?;
+                }
+                
                 // Place the stone
-                self.board[idx] = Some(self.current_player);
+                self.board[idx] = Some(color);
+                board.place(coord, color);
+                
+                // Find and remove captured stones
+                let validator = crate::rules::RuleValidator::new(&board, &prev_board);
+                let captured_positions = validator.find_captures(coord);
+                let mut total_captured = 0;
+                
+                if !captured_positions.is_empty() {
+                    total_captured = captured_positions.len() as u16;
+                    
+                    // Remove captured stones
+                    for pos in &captured_positions {
+                        let cap_idx = (pos.y as usize) * (self.board_size as usize) + (pos.x as usize);
+                        self.board[cap_idx] = None;
+                    }
+                    
+                    // Emit capture event
+                    let captured_color = color.opposite();
+                    events.push(GameEvent::StonesCaptured {
+                        count: captured_positions.len() as u16,
+                        positions: captured_positions,
+                        player: captured_color,
+                    });
+                }
+                
+                // Update capture count
+                match color {
+                    Color::Black => self.captures.0 += total_captured,
+                    Color::White => self.captures.1 += total_captured,
+                }
+                
                 self.pass_count = 0;
             },
             Move::Pass => {
@@ -155,12 +227,27 @@ impl GameState {
         }
         
         // Record the move
-        self.moves.push(mv);
+        self.moves.push(mv.clone());
+        
+        // Emit move event
+        events.insert(0, GameEvent::MoveMade {
+            mv,
+            by: self.current_player,
+        });
         
         // Switch player
         self.current_player = self.current_player.opposite();
         
-        Ok(())
+        // Check if game ended
+        if self.is_game_over() {
+            let (black_score, white_score) = self.calculate_score();
+            events.push(GameEvent::GameFinished {
+                black_score,
+                white_score,
+            });
+        }
+        
+        Ok(events)
     }
     
     /// Check if the game is over
@@ -182,6 +269,34 @@ impl GameState {
         self.board.iter()
             .filter(|stone| **stone == Some(color))
             .count()
+    }
+    
+    /// Convert to Board for rules checking
+    fn to_board(&self) -> Board {
+        let mut board = Board::new(self.board_size);
+        for y in 0..self.board_size {
+            for x in 0..self.board_size {
+                let idx = (y as usize) * (self.board_size as usize) + (x as usize);
+                if let Some(color) = self.board[idx] {
+                    board.place(Coord::new(x, y), color);
+                }
+            }
+        }
+        board
+    }
+    
+    /// Calculate final score
+    pub fn calculate_score(&self) -> (f32, f32) {
+        // Basic scoring: captures + stones on board
+        let black_stones = self.count_stones_for(Color::Black) as f32;
+        let white_stones = self.count_stones_for(Color::White) as f32;
+        let black_captures = self.captures.1 as f32; // White stones captured
+        let white_captures = self.captures.0 as f32; // Black stones captured
+        
+        let black_score = black_stones + black_captures;
+        let white_score = white_stones + white_captures + 6.5; // Komi
+        
+        (black_score, white_score)
     }
 }
 
@@ -251,7 +366,29 @@ pub enum GameError {
     InvalidMove(String),
 }
 
+/// Simple board state representation for neural network training
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BoardState {
+    /// Board size
+    pub size: u8,
+    /// Board positions as 2D array
+    pub board: Vec<Vec<Option<Color>>>,
+}
+
+impl BoardState {
+    /// Create new empty board state
+    pub fn new(size: u8) -> Self {
+        Self {
+            size,
+            board: vec![vec![None; size as usize]; size as usize],
+        }
+    }
+}
+
 // Re-export CBOR types for convenience
 pub use cbor::{Tag, MoveRecord};
+
+// Re-export SGF parser for convenience
+pub use sgf_parser::SGFParser;
 
 

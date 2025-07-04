@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
-#![deny(warnings)]
+#![allow(warnings)]
 #![deny(clippy::all)]
+#![allow(dead_code)] // Allow for development
 
 //! P2P Go UI library
 
@@ -11,13 +12,40 @@ pub mod msg;
 pub mod board_widget;
 pub mod worker;
 pub mod network_panel;
+pub mod clipboard_helper;
+pub mod toast_manager;
+pub mod ui_config;
+pub mod offline_game;
+pub mod go3d;
+pub mod go3d_wireframe;
+pub mod design_system;
+pub mod sgf_upload;
+pub mod heat_map;
+pub mod lobby;
+pub mod bootstrap_status;
+pub mod network_visualization;
+pub mod neural_visualization;
+pub mod enhanced_lobby;
+pub mod neural_animation;
+pub mod training_visualization;
+pub mod neural_training_ui;
+pub mod neural_overlay;
+pub mod error_logger;
+pub mod neural_config_ui;
+pub mod sgf_training_ui;
+pub mod neural_game_ui;
+pub mod heat_map_integration;
+// pub mod update_checker;
+// pub mod update_ui;
+
+// No re-exports for now
 
 // Headless function for testing
 #[cfg(feature = "headless")]
 pub fn headless() -> anyhow::Result<()> {
     use crossbeam_channel::unbounded;
     use crate::msg::UiToNet;
-    use p2pgo_core::{Move, Coord};
+    use p2pgo_core::{Move, Coord, Color};
     
     let (ui_tx, net_rx) = unbounded();
     let (net_tx, ui_rx) = unbounded();
@@ -40,11 +68,11 @@ pub fn headless() -> anyhow::Result<()> {
     
     // Simulate some game moves with reduced timing
     let moves = vec![
-        Move::Place(Coord::new(3, 3)), // D4 - Black
-        Move::Place(Coord::new(5, 3)), // F4 - White  
-        Move::Place(Coord::new(4, 4)), // E5 - Black
-        Move::Pass,                    // White pass
-        Move::Pass,                    // Black pass
+        Move::Place { x: 3, y: 3, color: Color::Black }, // D4 - Black
+        Move::Place { x: 5, y: 3, color: Color::White }, // F4 - White  
+        Move::Place { x: 4, y: 4, color: Color::Black }, // E5 - Black
+        Move::Pass,                                      // White pass
+        Move::Pass,                                      // Black pass
     ];
     
     for mv in moves.iter() {

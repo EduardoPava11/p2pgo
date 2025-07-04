@@ -41,12 +41,24 @@ jobs:
     
     - name: Run iroh tests
       run: cargo test --features iroh --verbose
+      
+    - name: Run all tests with all features
+      run: cargo test --all --all-features --verbose
     
     - name: Run MVP test
       run: make mvp-test
     
     - name: Run headless tests
       run: cargo test --features "iroh,headless" --verbose
+      
+    - name: Run integration tests
+      run: |
+        cd network
+        cargo test --test duplicate_delivery --features iroh -- --nocapture
+        cargo test --test ack_timeout --features iroh -- --nocapture
+        cargo test --test relay_limits --features iroh -- --nocapture
+        cargo test --test snapshot_cadence --features iroh -- --nocapture
+        cargo test --test property_reorder -- --nocapture
     
     - name: Check formatting
       run: cargo fmt -- --check
