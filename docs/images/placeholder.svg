@@ -1,0 +1,37 @@
+<svg width="800" height="600" xmlns="http://www.w3.org/2000/svg">
+  <rect width="800" height="600" fill="#2d2d2d"/>
+  <rect x="50" y="50" width="500" height="500" fill="#dcb35c" rx="8"/>
+  <g stroke="#2c2c2c" stroke-width="2">
+    <line x1="75" y1="75" x2="75" y2="525"/>
+    <line x1="125" y1="75" x2="125" y2="525"/>
+    <line x1="175" y1="75" x2="175" y2="525"/>
+    <line x1="225" y1="75" x2="225" y2="525"/>
+    <line x1="275" y1="75" x2="275" y2="525"/>
+    <line x1="325" y1="75" x2="325" y2="525"/>
+    <line x1="375" y1="75" x2="375" y2="525"/>
+    <line x1="425" y1="75" x2="425" y2="525"/>
+    <line x1="475" y1="75" x2="475" y2="525"/>
+    <line x1="525" y1="75" x2="525" y2="525"/>
+    <line x1="75" y1="75" x2="525" y2="75"/>
+    <line x1="75" y1="125" x2="525" y2="125"/>
+    <line x1="75" y1="175" x2="525" y2="175"/>
+    <line x1="75" y1="225" x2="525" y2="225"/>
+    <line x1="75" y1="275" x2="525" y2="275"/>
+    <line x1="75" y1="325" x2="525" y2="325"/>
+    <line x1="75" y1="375" x2="525" y2="375"/>
+    <line x1="75" y1="425" x2="525" y2="425"/>
+    <line x1="75" y1="475" x2="525" y2="475"/>
+    <line x1="75" y1="525" x2="525" y2="525"/>
+  </g>
+  <circle cx="175" cy="175" r="20" fill="#0a0a0a"/>
+  <circle cx="375" cy="175" r="20" fill="#fafafa"/>
+  <circle cx="275" cy="275" r="20" fill="#0a0a0a"/>
+  <circle cx="375" cy="375" r="20" fill="#fafafa"/>
+  <rect x="580" y="50" width="170" height="500" fill="#3a3a3a" rx="8"/>
+  <text x="665" y="90" fill="#ffffff" text-anchor="middle" font-size="18" font-family="Arial">Neural AI</text>
+  <rect x="595" y="110" width="140" height="60" fill="#64c864" opacity="0.3" rx="4"/>
+  <text x="665" y="145" fill="#64c864" text-anchor="middle" font-size="14" font-family="Arial">D4: 72%</text>
+  <rect x="595" y="180" width="140" height="60" fill="#4a90e2" opacity="0.3" rx="4"/>
+  <text x="665" y="215" fill="#4a90e2" text-anchor="middle" font-size="14" font-family="Arial">F6: 18%</text>
+  <text x="665" y="400" fill="#ffffff" text-anchor="middle" font-size="16" font-family="Arial">Win: 54.2%</text>
+</svg>
