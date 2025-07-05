@@ -1,7 +1,7 @@
 //! Connection status widget
 
-use egui::{Ui, Color32, Widget};
-use crate::connection_status::{ConnectionStatusWidget, ConnectionState};
+use crate::connection_status::{ConnectionState, ConnectionStatusWidget};
+use egui::{Color32, Ui, Widget};
 
 /// Connection status display
 pub struct ConnectionStatus<'a> {

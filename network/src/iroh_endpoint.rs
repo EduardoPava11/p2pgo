@@ -62,13 +62,13 @@ impl ProtocolHandler for P2PGoProtocol {
                     tracing::warn!("Could not get remote node ID: {}", e);
                 }
             }
-            
+
             // Send the connection to the application layer for handling
             if let Err(e) = connection_tx.send(connection) {
                 tracing::error!("Failed to send connection to application layer: {}", e);
                 return Err(anyhow::anyhow!("Failed to route connection: {}", e));
             }
-            
+
             Ok(())
         })
     }
@@ -137,25 +137,25 @@ impl IrohCtx {
         #[cfg(feature = "iroh")]
         {
             tracing::debug!("Creating Iroh endpoint with relay support");
-            
+
             // Load network configuration
             let config = load_config().unwrap_or_else(|e| {
                 tracing::warn!("Failed to load network config, using defaults: {}", e);
                 crate::config::NetworkConfig::default()
             });
-            
-            tracing::info!("Network config loaded: relay_mode={:?}, {} relay addresses", 
+
+            tracing::info!("Network config loaded: relay_mode={:?}, {} relay addresses",
                 config.relay_mode, config.relay_addrs.len());
-            
+
             // If using self relay mode, defer to new_with_port
             if config.relay_mode == RelayModeConfig::SelfRelay {
                 return Self::new_with_port(config, None).await;
             }
-            
+
             // Standard client mode setup
             // Create iroh endpoint with configured relay support
             let mut endpoint_builder = Endpoint::builder();
-            
+
             // Configure relay mode based on config
             match config.relay_mode {
                 RelayModeConfig::Default => {
@@ -169,7 +169,7 @@ impl IrohCtx {
                     } else {
                         tracing::info!("Using custom relays: {:?}", config.relay_addrs);
                         let mut relay_opts = iroh::relay::RelayOptions::new();
-                        
+
                         // Add configured relays
                         for addr_str in &config.relay_addrs {
                             match addr_str.parse() {
@@ -180,7 +180,7 @@ impl IrohCtx {
                             Err(e) => tracing::error!("Invalid relay address {}: {}", addr_str, e),
                         }
                     }
-                    
+
                     endpoint_builder = endpoint_builder.relay_mode(iroh::RelayMode::Custom(relay_opts));
                 }
                 },
@@ -189,32 +189,32 @@ impl IrohCtx {
                     unreachable!("Self relay mode should be handled by new_with_port");
                 },
             }
-            
+
             let endpoint = endpoint_builder
                 .bind()
                 .await
                 .context("Failed to bind iroh endpoint")?;
-            
+
             let node_addr = endpoint.node_addr().await?;
-            tracing::info!("Iroh endpoint bound successfully, node ID: {}, addr: {:?}", 
+            tracing::info!("Iroh endpoint bound successfully, node ID: {}, addr: {:?}",
                 endpoint.node_id(), node_addr);
-            
+
             // Log external addresses for debugging
             let public_addrs = endpoint.direct_addresses().get();
             tracing::info!("🌐 PUBLIC addrs: {:?}", public_addrs);
-            
+
             // Ensure we have external addresses for internet connectivity
             if node_addr.direct_addresses.is_empty() {
                 tracing::warn!("NodeAddr missing external addresses - relay may not be ready yet");
             }
-            
+
             // Create gossip instance
             let gossip = iroh_gossip::net::Gossip::builder()
                 .spawn(endpoint.clone())
                 .await
                 .context("Failed to create gossip instance")?;
             let gossip = Arc::new(gossip);
-            
+
             // Create docs instance for document sync
             let docs = Docs::builder()
                 .mem()
@@ -222,20 +222,20 @@ impl IrohCtx {
                 .await
                 .context("Failed to create docs instance")?;
             let docs = Arc::new(docs);
-            
+
             // Create blobs instance for blob storage
             let blobs = Blobs::memory()
                 .spawn(endpoint.clone())
                 .await
                 .context("Failed to create blobs instance")?;
             let blobs = Arc::new(blobs);
-            
+
             // Create a channel for incoming connections
             let (connection_tx, connection_rx) = tokio::sync::mpsc::unbounded_channel();
-            
+
             // Create the P2P Go protocol handler
             let p2pgo_protocol = P2PGoProtocol::new(connection_tx);
-            
+
             // Set up the router with all protocols
             let router = Router::builder(endpoint.clone())
                 .accept(iroh_gossip::ALPN, gossip.clone())
@@ -243,18 +243,18 @@ impl IrohCtx {
                 .accept(iroh_blobs::ALPN, blobs.clone())
                 .accept(P2PGO_ALPN, p2pgo_protocol)
                 .spawn();
-            
+
             let my_id = endpoint.node_id().to_string();
-            
+
             // Create a default author ID for signing documents
             let default_author = AuthorId::from([0; 32]);
-            
+
             // Initialize relay monitoring
             let relay_monitor = RelayMonitor::new(endpoint.clone(), config.relay_addrs.clone());
             let relay_stats = relay_monitor.start_monitoring();
-            
+
             tracing::info!("Iroh networking context initialized successfully");
-            
+
             Ok(Self {
                 endpoint,
                 router,
@@ -269,37 +269,37 @@ impl IrohCtx {
                 is_relay_mode: false,
             })
         }
-        
+
         // Fallback to TCP loopback stub
         #[cfg(not(feature = "iroh"))]
         {
             tracing::info!("Using TCP loopback stub for networking");
-            
+
             return Ok(Self {
                 _ep: EndpointStub,
                 my_id: "loopback-node".to_string(),
             });
         }
     }
-    
+
     /// Create a new IrohCtx with a specific port for relay service
     #[cfg(feature = "iroh")]
     pub async fn new_with_port(config: crate::config::NetworkConfig, port: Option<u16>) -> Result<Self> {
         // Create port manager
         let port_manager = crate::port::PortManager::new()?;
-        
+
         // Create health event channel for relay monitoring
         let (health_tx, mut health_rx) = tokio_mpsc::unbounded_channel();
-        
+
         // Start the embedded relay if needed
         match config.relay_mode {
             RelayModeConfig::SelfRelay => {
                 tracing::info!("Creating endpoint with embedded relay");
-                
+
                 // Create RestartableRelay service with health sender
                 let mut relay_service = crate::relay_monitor::RestartableRelay::new(port_manager.clone())
                     .with_health_sender(health_tx.clone());
-                
+
                 // Start the embedded relay, which will pick TCP/UDP ports
                 let (tcp_port, udp_port) = match relay_service.start_embedded_relay().await {
                     Ok(ports) => {
@@ -311,39 +311,39 @@ impl IrohCtx {
                         return Err(e);
                     }
                 };
-                
+
                 // Use the relay port for our endpoint
                 let listen_addr = format!("/ip4/0.0.0.0/tcp/{}/quic-v1", tcp_port);
                 tracing::info!("Starting endpoint with quic listen address: {}", listen_addr);
-                
+
                 // Start endpoint with relay mode
                 let endpoint_builder = Endpoint::builder()
                     .relay_mode(iroh::RelayMode::Relay)
                     .listen_on(Some(listen_addr.parse()?));
-                
+
                 // Create connection channel
                 let (connection_tx, connection_rx) = tokio_mpsc::unbounded_channel();
-                
+
                 // Create P2P Go protocol handler
                 let p2pgo_protocol = P2PGoProtocol::new(connection_tx);
-                
+
                 // Create router with protocol handlers
                 let router = Router::new();
-                
+
                 let (endpoint, router) = endpoint_builder
                     .spawn_with_router(router)
                     .await?;
-                
+
                 // Initialize Gossip service
                 let gossip_config = iroh_gossip::net::Config::new(endpoint.node_id());
                 let gossip = Arc::new(Gossip::new(endpoint.clone(), gossip_config).await?);
-                
+
                 // Initialize Docs service for document synchronization
                 let docs = Arc::new(Docs::new(endpoint.clone()));
-                
+
                 // Initialize Blobs service for large binary data
                 let blobs = Arc::new(Blobs::new(endpoint.clone()));
-                
+
                 // Register protocol handlers
                 let router = router
                     .accept(iroh_gossip::net::ALPN, gossip.clone())
@@ -351,20 +351,20 @@ impl IrohCtx {
                     .accept(iroh_blobs::ALPN, blobs.clone())
                     .accept(P2PGO_ALPN, p2pgo_protocol)
                     .spawn();
-                
+
                 let my_id = endpoint.node_id().to_string();
-                
+
                 // Create a default author ID for signing documents
                 let default_author = AuthorId::from([0; 32]);
-                
+
                 // Initialize relay monitoring for external relays
                 let relay_monitor = RelayMonitor::new(endpoint.clone(), config.relay_addrs.clone());
                 let relay_stats = relay_monitor.start_monitoring();
-                
+
                 // Spawn a task to forward health events to the UI layer if a sender is configured
                 if let Some(ui_sender) = config.ui_sender {
                     let ui_sender = ui_sender.clone();
-                    
+
                     let _health_forward = spawn_cancelable!(
                         name: "relay_health_forwarder",
                         max_restarts: 3,
@@ -373,7 +373,7 @@ impl IrohCtx {
                         |shutdown| async move {
                             use p2pgo_ui_egui::msg::NetToUi;
                             use std::time::SystemTime;
-                            
+
                             while !shutdown.is_cancelled() {
                                 match tokio::time::timeout(Duration::from_secs(1), health_rx.recv()).await {
                                     Ok(Some(event)) => {
@@ -387,7 +387,7 @@ impl IrohCtx {
                                             };
                                             SystemTime::now().checked_sub(elapsed).unwrap_or_else(SystemTime::now)
                                         });
-                                        
+
                                         // Forward to UI
                                         let ui_msg = NetToUi::RelayHealth {
                                             status: event.status,
@@ -395,7 +395,7 @@ impl IrohCtx {
                                             is_relay_node: event.is_self_relay,
                                             last_restart,
                                         };
-                                        
+
                                         if let Err(e) = ui_sender.send(ui_msg) {
                                             tracing::warn!("Failed to forward relay health event: {}", e);
                                         }
@@ -409,14 +409,14 @@ impl IrohCtx {
                                     }
                                 }
                             }
-                            
+
                             Ok(())
                         }
                     );
                 }
-                
+
                 tracing::info!("Iroh networking context initialized successfully with embedded relay");
-                
+
                 Ok(Self {
                     endpoint,
                     router,
@@ -437,23 +437,23 @@ impl IrohCtx {
             }
         }
     }
-    
+
     /// Restart the embedded relay service
     #[cfg(feature = "iroh")]
     pub async fn restart_relay(&self) -> Result<()> {
         if let Some(relay_service) = &self.relay_service {
             tracing::info!("Relay restart requested");
-            
+
             let mut service = relay_service.lock().await;
             let endpoint_clone = self.endpoint.clone();
-            
+
             // Restart the relay service with a new closure to initialize the relay
             service.restart(move |port, shutdown_rx| {
                 let ep = endpoint_clone.clone();
-                
+
                 async move {
                     tracing::info!("Starting embedded relay on port {}", port);
-                    
+
                     // We already have an endpoint, so we don't need to do anything special here
                     // Just wait for the shutdown signal
                     match shutdown_rx.await {
@@ -468,25 +468,25 @@ impl IrohCtx {
                     }
                 }
             }).await?;
-            
+
             // Broadcast the restart event to connected peers
             self.broadcast_restart_event().await?;
-            
+
             Ok(())
         } else {
             bail!("No embedded relay service to restart")
         }
     }
-    
+
     /// Check if running in relay mode
     pub fn is_relay_mode(&self) -> bool {
         #[cfg(feature = "iroh")]
         return self.is_relay_mode;
-        
+
         #[cfg(not(feature = "iroh"))]
         false
     }
-    
+
     /// Get the current relay status and port
     #[cfg(feature = "iroh")]
     pub async fn get_relay_status(&self) -> Result<Option<(crate::relay_monitor::RelayHealthStatus, Option<u16>)>> {
@@ -494,13 +494,13 @@ impl IrohCtx {
             let service = relay_service.lock().await;
             let state = service.state();
             let state = state.read().await;
-            
+
             Ok(Some((state.status.clone(), state.listening_port)))
         } else {
             Ok(None)
         }
     }
-    
+
     /// Broadcast a restart event to connected peers
     #[allow(dead_code)]
     async fn broadcast_restart_event(&self) -> Result<()> {
@@ -509,7 +509,7 @@ impl IrohCtx {
         tracing::info!("Broadcasting relay restart event");
         Ok(())
     }
-    
+
     /// Test connectivity to the relay
     pub async fn test_relay_connectivity(&self) -> Result<RelayConnectivityResult> {
         // TODO: Implement real relay connectivity test
@@ -520,40 +520,40 @@ impl IrohCtx {
             relay_addr: "test-relay".into(),
         })
     }
-    
+
     /// Connect to a peer using a ticket
     pub async fn connect_by_ticket(&self, ticket: &str) -> Result<()> {
         // TODO: Implement real ticket connection
         tracing::info!("Connecting via ticket: {}", ticket);
         Ok(())
     }
-    
+
     /// Get our connection ticket
     pub async fn ticket(&self) -> Result<String> {
         // TODO: Implement real ticket generation
         Ok("dummy-ticket-123".to_string())
     }
-    
+
     /// Advertise a game for others to find
     pub async fn advertise_game(&self, game_id: &str, board_size: u8) -> Result<()> {
         // TODO: Implement real game advertisement
         tracing::info!("Advertising game {} with board size {}", game_id, board_size);
         Ok(())
     }
-    
+
     /// Get the node ID
     pub fn node_id(&self) -> String {
         // TODO: Implement real node ID retrieval
         "dummy-node-id".to_string()
     }
-    
+
     /// Store a game move
     pub async fn store_game_move(&self, game_id: &str, sequence: u64, move_record: &p2pgo_core::MoveRecord) -> Result<()> {
         // TODO: Implement real move storage
         tracing::info!("Storing move for game {} seq {}: {:?}", game_id, sequence, move_record);
         Ok(())
     }
-    
+
     /// Store a move tag
     pub async fn store_move_tag(&self, game_id: &str, sequence: u64, tag: &str) -> Result<()> {
         // TODO: Implement real move tag storage
@@ -568,49 +568,49 @@ impl IrohCtx {
     pub fn get_node_id_bytes(&self) -> Result<[u8; 32]> {
         let node_id = self.endpoint.node_id();
         let mut bytes = [0u8; 32];
-        
+
         // Convert the PublicKey from node_id to raw bytes
         let node_id_bytes = node_id.as_bytes();
-        
+
         // Ensure we have the expected format
         if node_id_bytes.len() != 32 {
             return Err(anyhow::anyhow!("Unexpected node_id size: {}", node_id_bytes.len()));
         }
-        
+
         bytes.copy_from_slice(node_id_bytes);
         Ok(bytes)
     }
-    
+
     /// Sign data with this node's identity key
     pub async fn sign_data(&self, data: &[u8]) -> Result<([u8; 64], String)> {
         #[cfg(feature = "iroh")]
         {
             use ed25519_dalek::{SigningKey, VerifyingKey};
-            
+
             // In real iroh, we'd get access to the keypair from the endpoint
             // For now we'll generate a deterministic keypair from the node_id
             let node_id_bytes = self.get_node_id_bytes()?;
-            
+
             // Use the node_id as seed for a deterministic keypair until we get proper access
             // Note: In a production system, we would want to get actual access to the keypair
             let mut hasher = blake3::Hasher::new();
             hasher.update(&node_id_bytes);
             let seed = hasher.finalize();
-            
+
             // Create a keypair using the seed
             let signing_key = SigningKey::from_bytes(&seed.into());
-            
+
             // Get the verifying key (public key) as a hex string
             let verifying_key = signing_key.verifying_key();
             let public_key_hex = hex::encode(verifying_key.as_bytes());
-            
+
             // Sign the data
             let signature = signing_key.sign(data);
-            
+
             // Return the signature bytes and public key
             Ok((signature.to_bytes(), public_key_hex))
         }
-        
+
         #[cfg(not(feature = "iroh"))]
         {
             // Return a dummy signature for stub mode
@@ -618,25 +618,25 @@ impl IrohCtx {
             Ok((signature, "stub_node_id".to_string()))
         }
     }
-    
+
     /// Verify a signature against a node_id
     pub fn verify_signature(&self, data: &[u8], signature: &[u8; 64], signer_hex: &str) -> Result<bool> {
         use ed25519_dalek::{Signature, VerifyingKey};
-        
+
         // Decode the signer from hex
         let signer_bytes = hex::decode(signer_hex)?;
         if signer_bytes.len() != 32 {
             return Err(anyhow::anyhow!("Invalid signer key length"));
         }
-        
+
         // Create a verifying key
         let mut key_bytes = [0u8; 32];
         key_bytes.copy_from_slice(&signer_bytes);
         let verifying_key = VerifyingKey::from_bytes(&key_bytes)?;
-        
+
         // Create a signature
         let signature = Signature::from_bytes(signature)?;
-        
+
         // Verify the signature
         match verifying_key.verify(data, &signature) {
             Ok(_) => Ok(true),
@@ -646,20 +646,20 @@ impl IrohCtx {
             }
         }
     }
-    
+
     /// Get an ed25519 keypair for signing
     pub async fn get_ed25519_keypair(&self) -> Result<ed25519_dalek::SigningKey> {
         use ed25519_dalek::SigningKey;
-        
+
         // Get the node ID bytes
         let node_id_bytes = self.get_node_id_bytes()?;
-        
+
         // Use the node_id as seed for a deterministic keypair until we get proper access
         // Note: In a production system, we would want to get actual access to the keypair
         let mut hasher = blake3::Hasher::new();
         hasher.update(&node_id_bytes);
         let seed = hasher.finalize();
-        
+
         // Create a keypair using the seed
         let signing_key = SigningKey::from_bytes(&seed.into());
         Ok(signing_key)
@@ -684,10 +684,10 @@ async fn create_client_endpoint(
     port_manager: crate::port::PortManager,
 ) -> Result<IrohCtx> {
     tracing::info!("Creating client endpoint (relay mode: {:?})", config.relay_mode);
-    
+
     // Client mode - use relay_addrs from config
     let endpoint_builder = Endpoint::builder();
-    
+
     // Configure relay mode from config
     let endpoint_builder = match config.relay_mode {
         RelayModeConfig::AutoRelay => endpoint_builder.relay_mode(iroh::RelayMode::AutoRelay),
@@ -695,7 +695,7 @@ async fn create_client_endpoint(
         RelayModeConfig::NoRelay => endpoint_builder.relay_mode(iroh::RelayMode::None),
         _ => endpoint_builder.relay_mode(iroh::RelayMode::AutoRelay),
     };
-    
+
     // Add relay addresses if provided
     let endpoint_builder = if !config.relay_addrs.is_empty() {
         let mut builder = endpoint_builder;
@@ -710,30 +710,30 @@ async fn create_client_endpoint(
     } else {
         endpoint_builder
     };
-    
+
     // Create connection channel
     let (connection_tx, connection_rx) = tokio_mpsc::unbounded_channel();
-    
+
     // Create P2P Go protocol handler
     let p2pgo_protocol = P2PGoProtocol::new(connection_tx);
-    
+
     // Create router with protocol handlers
     let router = Router::new();
-    
+
     let (endpoint, router) = endpoint_builder
         .spawn_with_router(router)
         .await?;
-    
+
     // Initialize Gossip service
     let gossip_config = iroh_gossip::net::Config::new(endpoint.node_id());
     let gossip = Arc::new(Gossip::new(endpoint.clone(), gossip_config).await?);
-    
+
     // Initialize Docs service for document synchronization
     let docs = Arc::new(Docs::new(endpoint.clone()));
-    
+
     // Initialize Blobs service for large binary data
     let blobs = Arc::new(Blobs::new(endpoint.clone()));
-    
+
     // Register protocol handlers
     let router = router
         .accept(iroh_gossip::net::ALPN, gossip.clone())
@@ -741,18 +741,18 @@ async fn create_client_endpoint(
         .accept(iroh_blobs::ALPN, blobs.clone())
         .accept(P2PGO_ALPN, p2pgo_protocol)
         .spawn();
-    
+
     let my_id = endpoint.node_id().to_string();
-    
+
     // Create a default author ID for signing documents
     let default_author = AuthorId::from([0; 32]);
-    
+
     // Initialize relay monitoring
     let relay_monitor = RelayMonitor::new(endpoint.clone(), config.relay_addrs.clone());
     let relay_stats = relay_monitor.start_monitoring();
-    
+
     tracing::info!("Iroh networking context initialized successfully in client mode");
-    
+
     Ok(IrohCtx {
         endpoint,
         router,
@@ -774,7 +774,7 @@ pub fn game_topic(&self, game_id: &str) -> Result<TopicId> {
     // Hash the game ID to get a consistent 32-byte value
     let hash = blake3::hash(game_id.as_bytes());
     let bytes = hash.as_bytes();
-    
+
     // Create a TopicId from the hash
     let topic = TopicId::from_bytes(*bytes)?;
     Ok(topic)
@@ -788,7 +788,7 @@ impl IrohEndpoint {
     pub fn new() -> Self {
         Self
     }
-    
+
     #[cfg(not(feature = "iroh"))]
     pub fn game_topic(&self, _game_id: &str) -> Result<()> {
         Ok(())
@@ -799,12 +799,12 @@ impl IrohEndpoint {
 #[cfg(feature = "iroh")]
 pub async fn broadcast_move(&self, game_id: &str, move_record: &mut p2pgo_core::MoveRecord) -> Result<()> {
     tracing::debug!("Broadcasting move via gossip: {:?}", move_record.mv);
-    
+
     // Sign the move if it doesn't already have a signature
     if move_record.signature.is_none() || move_record.signer.is_none() {
         // Get bytes to sign
         let data = move_record.to_bytes();
-        
+
         // Sign the data
         match self.sign_data(&data).await {
             Ok((signature, signer)) => {
@@ -818,14 +818,14 @@ pub async fn broadcast_move(&self, game_id: &str, move_record: &mut p2pgo_core::
             }
         }
     }
-    
+
     // CBOR encode the signed move record
     let cbor_data = serde_cbor::to_vec(move_record)
         .context("Failed to CBOR encode move record")?;
-        
+
     // Generate topic ID from game_id
     let topic = self.game_topic(game_id)?;
-    
+
     #[cfg(feature = "iroh")]
     {
         // Broadcast via gossip
@@ -836,7 +836,7 @@ pub async fn broadcast_move(&self, game_id: &str, move_record: &mut p2pgo_core::
             return Ok(());
         }
     }
-    
+
     Err(anyhow::anyhow!("Gossip not enabled"))
 }
 
@@ -853,10 +853,10 @@ impl IrohEndpoint {
 #[cfg(feature = "iroh")]
 pub async fn broadcast_to_game_topic(&self, game_id: &str, data: &[u8]) -> Result<()> {
     tracing::debug!("Broadcasting data to game topic: {}", game_id);
-    
+
     // Generate topic ID from game_id
     let topic = self.game_topic(game_id)?;
-    
+
     #[cfg(feature = "iroh")]
     {
         // Broadcast via gossip
@@ -867,7 +867,7 @@ pub async fn broadcast_to_game_topic(&self, game_id: &str, data: &[u8]) -> Resul
             return Ok(());
         }
     }
-    
+
     Err(anyhow::anyhow!("Gossip not enabled"))
 }
 

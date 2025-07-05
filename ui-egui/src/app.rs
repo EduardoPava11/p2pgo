@@ -2,24 +2,24 @@
 
 //! Main application state and UI logic.
 
-use crossbeam_channel::{Sender, Receiver};
+use crossbeam_channel::{Receiver, Sender};
 use eframe::egui;
-use p2pgo_core::{Move, Color, Coord};
+use p2pgo_core::{Color, Coord, Move};
 use std::thread::JoinHandle;
 
-use crate::msg::{UiToNet, NetToUi};
-use crate::view::View;
 use crate::board_widget::BoardWidget;
-use crate::network_panel::NetworkPanel;
 use crate::clipboard_helper::ClipboardHelper;
-use crate::toast_manager::{ToastManager, ToastType};
-use crate::offline_game::OfflineGoGame;
-use crate::neural_placeholder::{NeuralTrainingUI, NeuralOverlay};
-use crate::error_logger::{ErrorLogger, ErrorLogViewer};
-use crate::connection_status::{ConnectionStatusWidget, ConnectionState};
-use crate::labeled_input::{show_labeled_input, show_labeled_identifier, IdentifierType};
-use crate::heat_map::HeatMapOverlay;
+use crate::connection_status::{ConnectionState, ConnectionStatusWidget};
 use crate::dual_heat_map::DualHeatMap;
+use crate::error_logger::{ErrorLogViewer, ErrorLogger};
+use crate::heat_map::HeatMapOverlay;
+use crate::labeled_input::{show_labeled_identifier, show_labeled_input, IdentifierType};
+use crate::msg::{NetToUi, UiToNet};
+use crate::network_panel::NetworkPanel;
+use crate::neural_placeholder::{NeuralOverlay, NeuralTrainingUI};
+use crate::offline_game::OfflineGoGame;
+use crate::toast_manager::{ToastManager, ToastType};
+use crate::view::View;
 // use crate::update_checker::{UpdateChecker, UpdateCheckResult, Version};
 // use crate::update_ui::{UpdateNotification, UpdateDialog, UpdateAction};
 
@@ -139,13 +139,18 @@ pub struct App {
 }
 
 impl App {
-    pub fn new(ui_tx: Sender<UiToNet>, ui_rx: Receiver<NetToUi>, board_size: u8, player_name: String) -> Self {
+    pub fn new(
+        ui_tx: Sender<UiToNet>,
+        ui_rx: Receiver<NetToUi>,
+        board_size: u8,
+        player_name: String,
+    ) -> Self {
         // Request node ID on startup
         let _ = ui_tx.send(UiToNet::GetNodeId);
-        
+
         // Initialize update checker with current version
         let update_checker = None;
-        
+
         Self {
             ui_tx,
             ui_rx,
@@ -234,7 +239,7 @@ impl App {
             dual_heat_map: DualHeatMap::new(),
         }
     }
-    
+
     /// Create a new headless app with provided channels
     #[allow(dead_code)]
     pub fn new_headless_with_channels(ui_tx: Sender<UiToNet>, ui_rx: Receiver<NetToUi>) -> Self {
@@ -290,24 +295,24 @@ impl App {
     #[cfg(any(feature = "headless", test))]
     pub fn tick_headless(&mut self) {
         self.handle_network_messages();
-        
+
         // For testing purposes, populate auto-refresh message if needed
         if self.config.auto_refresh {
             let _ = self.ui_tx.send(UiToNet::RefreshGames);
         }
     }
-    
+
     #[cfg(test)]
     pub fn tick_headless_test(&mut self) {
         self.handle_network_messages();
     }
-    
+
     /// Get network panel reference for testing
     #[cfg(test)]
     pub fn network_panel(&self) -> &NetworkPanel {
         &self.network_panel
     }
-    
+
     /// Send a message to the network component
     #[allow(dead_code)]
     #[cfg(not(test))]
@@ -320,7 +325,7 @@ impl App {
     pub fn ui_send(&mut self, msg: UiToNet) {
         let _ = self.ui_tx.send(msg);
     }
-    
+
     /// Get the last received message from the network worker (for testing)
     #[cfg(test)]
     pub fn recv_last(&mut self) -> Option<NetToUi> {
@@ -330,13 +335,13 @@ impl App {
         }
         last
     }
-    
+
     /// Wait for and receive a specific message (for testing)
     #[cfg(test)]
     pub fn blocking_recv(&mut self) -> Option<NetToUi> {
         self.ui_rx.recv().ok()
     }
-    
+
     /// Get all received messages for assertion (for testing)
     #[cfg(test)]
     pub fn recv_log(&mut self) -> Vec<NetToUi> {
@@ -346,7 +351,7 @@ impl App {
         }
         messages
     }
-    
+
     /// Get current game ID (for testing)
     #[cfg(test)]
     pub fn get_current_game_id(&self) -> Option<String> {
@@ -363,7 +368,7 @@ impl App {
     pub fn update(&mut self) {
         self.handle_network_messages();
     }
-    
+
     /// Handle the AcceptScore message for testing
     #[cfg(test)]
     pub fn handle_accept_score(&mut self) {
@@ -372,7 +377,7 @@ impl App {
             self.current_view = View::default();
         }
     }
-    
+
     // Method removed to avoid duplication - using the existing tick_headless_test
 
     /// Handle incoming messages from the network worker
@@ -381,13 +386,18 @@ impl App {
         while let Ok(msg) = self.ui_rx.try_recv() {
             #[cfg(feature = "headless")]
             println!("App received message: {:?}", msg);
-            
+
             // Update connection status widget
             self.connection_status.update_from_message(&msg);
-            
+
             match msg {
                 NetToUi::GamesUpdated { games } => {
-                    if let View::MainMenu { available_games, creating_game: _, board_size: _ } = &mut self.current_view {
+                    if let View::MainMenu {
+                        available_games,
+                        creating_game: _,
+                        board_size: _,
+                    } = &mut self.current_view
+                    {
                         *available_games = games;
                     }
                 }
@@ -396,7 +406,7 @@ impl App {
                         p2pgo_core::GameEvent::MoveMade { mv, .. } => {
                             #[cfg(feature = "headless")]
                             println!("Move made event received: {:?}", mv);
-                            
+
                             if let View::Game { game_state, .. } = &mut self.current_view {
                                 // Animate the move
                                 match mv {
@@ -406,17 +416,24 @@ impl App {
                                     }
                                     _ => {} // Pass and Resign don't need animation
                                 }
-                                
+
                                 let _ = game_state.apply_move(mv.clone());
                                 // Update last blob hash for debug overlay - use move type description
                                 self.last_blob_hash = Some(format!("{:?}", mv));
                             }
-                        },
-                        p2pgo_core::GameEvent::GameFinished { black_score, white_score } => {
+                        }
+                        p2pgo_core::GameEvent::GameFinished {
+                            black_score,
+                            white_score,
+                        } => {
                             // Wait for ScoreCalculated message to transition to score dialog
                             // We'll just collect the scores here for now
-                            tracing::info!("Game finished - black: {}, white: {}", black_score, white_score);
-                        },
+                            tracing::info!(
+                                "Game finished - black: {}, white: {}",
+                                black_score,
+                                white_score
+                            );
+                        }
                         _ => {
                             // Request ghost moves after the move is applied
                             let _ = self.ui_tx.send(UiToNet::GetGhostMoves);
@@ -426,21 +443,22 @@ impl App {
                 NetToUi::GameJoined { game_id } => {
                     #[cfg(feature = "headless")]
                     println!("Game joined: {}, transitioning to Game view", game_id);
-                    
+
                     // Get board size from the board widget
                     let board_size = self.board_widget.get_board_size();
                     let game_state = p2pgo_core::GameState::new(board_size);
-                    
+
                     // Update network panel with game connection
-                    self.network_panel.update_game_connection(game_id.clone(), 1, true);
-                    
+                    self.network_panel
+                        .update_game_connection(game_id.clone(), 1, true);
+
                     // Transition directly to game view so creator sees the board
                     self.current_view = View::Game {
                         game_id,
                         game_state,
                         our_color: None, // Will be determined by first move
                     };
-                    
+
                     // Request initial ghost moves when joining a game if threshold met
                     if self.config.games_finished >= 5 {
                         let _ = self.ui_tx.send(UiToNet::GetGhostMoves);
@@ -499,7 +517,12 @@ impl App {
                 }
                 NetToUi::ScoreCalculated { score_proof } => {
                     // Transition to score dialog with the calculated score
-                    if let View::Game { game_id, game_state, .. } = &self.current_view {
+                    if let View::Game {
+                        game_id,
+                        game_state,
+                        ..
+                    } = &self.current_view
+                    {
                         self.current_view = View::ScoreDialog {
                             game_id: game_id.clone(),
                             game_state: game_state.clone(),
@@ -510,10 +533,16 @@ impl App {
                         };
                     }
                 }
-                
+
                 NetToUi::ScoreAcceptedByBoth { score_proof } => {
                     // Update score dialog to show accepted score
-                    if let View::ScoreDialog { game_id, game_state, dead_stones, .. } = &self.current_view {
+                    if let View::ScoreDialog {
+                        game_id,
+                        game_state,
+                        dead_stones,
+                        ..
+                    } = &self.current_view
+                    {
                         self.current_view = View::ScoreDialog {
                             game_id: game_id.clone(),
                             game_state: game_state.clone(),
@@ -526,7 +555,10 @@ impl App {
                 }
                 NetToUi::ScoreTimeout { board_size } => {
                     // Score acceptance timed out after 3 minutes
-                    self.error_msg = Some(format!("Score acceptance timed out for {}×{} game. Game will be discarded.", board_size, board_size));
+                    self.error_msg = Some(format!(
+                        "Score acceptance timed out for {}×{} game. Game will be discarded.",
+                        board_size, board_size
+                    ));
                     // Return to main menu
                     self.current_view = View::default();
                 }
@@ -534,8 +566,18 @@ impl App {
                     tracing::debug!("Debug message: {}", message);
                     self.rx_queue_length = self.ui_rx.len();
                 }
-                NetToUi::GameAdvertised { game_id, host_id, board_size } => {
-                    tracing::info!("Game advertisement received: {} ({}×{}) from {}", game_id, board_size, board_size, host_id);
+                NetToUi::GameAdvertised {
+                    game_id,
+                    host_id,
+                    board_size,
+                } => {
+                    tracing::info!(
+                        "Game advertisement received: {} ({}×{}) from {}",
+                        game_id,
+                        board_size,
+                        board_size,
+                        host_id
+                    );
                     // Request a refresh of the game list to show the advertised game
                     let _ = self.ui_tx.send(UiToNet::RefreshGames);
                 }
@@ -547,26 +589,29 @@ impl App {
                     tracing::info!("Network restarting: {}", reason);
                 }
                 NetToUi::NetRestartCompleted => {
-                    self.toast_manager.add_toast(
-                        "Network restarted successfully",
-                        ToastType::Success,
-                    );
+                    self.toast_manager
+                        .add_toast("Network restarted successfully", ToastType::Success);
                     // Request refresh and ticket
                     let _ = self.ui_tx.send(UiToNet::RefreshGames);
                     let _ = self.ui_tx.send(UiToNet::GetTicket);
                     let _ = self.ui_tx.send(UiToNet::GetNodeId);
                 }
-                NetToUi::RelayHealth { status, port, is_relay_node, last_restart } => {
+                NetToUi::RelayHealth {
+                    status,
+                    port,
+                    is_relay_node,
+                    last_restart,
+                } => {
                     // Update network panel with health info
-                    #[cfg(feature = "iroh")] 
+                    #[cfg(feature = "iroh")]
                     self.network_panel.update_relay_health(status.clone(), port);
-                    
+
                     // Update relay node flag separately
                     self.network_panel.set_is_relay_node(is_relay_node);
-                    
+
                     // Clone for continued use
                     let status = status.clone();
-                    
+
                     // Add toast notification for important status changes
                     match status {
                         p2pgo_network::relay_monitor::RelayHealthStatus::Healthy => {
@@ -576,13 +621,13 @@ impl App {
                                 } else {
                                     String::new()
                                 };
-                                
+
                                 self.toast_manager.add_toast(
                                     format!("Relay active{}", port_info),
                                     ToastType::Success,
                                 );
                             }
-                        },
+                        }
                         p2pgo_network::relay_monitor::RelayHealthStatus::Restarting => {
                             let reason = if let Some(time) = last_restart {
                                 // Format restart time nicely
@@ -599,51 +644,61 @@ impl App {
                             } else {
                                 "now".to_string()
                             };
-                            
+
                             self.toast_manager.add_toast(
                                 format!("Relay restarting {}", reason),
                                 ToastType::Warning,
                             );
-                        },
+                        }
                         p2pgo_network::relay_monitor::RelayHealthStatus::Failed => {
-                            self.toast_manager.add_toast(
-                                "Relay service failed to start",
-                                ToastType::Error,
-                            );
-                        },
+                            self.toast_manager
+                                .add_toast("Relay service failed to start", ToastType::Error);
+                        }
                         _ => {}
                     }
-                },
-                NetToUi::RelayCapacity { current_connections, max_connections, .. } => {
+                }
+                NetToUi::RelayCapacity {
+                    current_connections,
+                    max_connections,
+                    ..
+                } => {
                     // Update network panel with relay capacity info
-                    self.network_panel.update_relay_capacity(current_connections, max_connections);
-                },
-                NetToUi::GameRestored { game_id, move_count } => {
+                    self.network_panel
+                        .update_relay_capacity(current_connections, max_connections);
+                }
+                NetToUi::GameRestored {
+                    game_id,
+                    move_count,
+                } => {
                     // Show toast notification that game was restored
                     self.toast_manager.add_toast(
                         format!("Restored game {} with {} moves", game_id, move_count),
                         ToastType::Info,
                     );
-                    tracing::info!("Game restored from snapshot: {} with {} moves", game_id, move_count);
-                },
+                    tracing::info!(
+                        "Game restored from snapshot: {} with {} moves",
+                        game_id,
+                        move_count
+                    );
+                }
                 NetToUi::ConnectionTestResults { results } => {
                     // Update network panel with test results
                     self.network_panel.update_test_results(results);
-                },
+                }
                 NetToUi::TrainingProgress { progress } => {
                     // Update training progress in UI
                     self.toast_manager.add_toast(
                         format!("Training progress: {:.1}%", progress * 100.0),
                         ToastType::Info,
                     );
-                },
+                }
                 NetToUi::TrainingCompleted { stats } => {
                     // Training completed successfully
                     self.toast_manager.add_toast(
                         format!("Training completed! Games trained: {}", stats.games_trained),
                         ToastType::Success,
                     );
-                },
+                }
                 NetToUi::TrainingError { message } => {
                     // Training failed
                     self.error_logger.log(
@@ -651,45 +706,46 @@ impl App {
                         "Training",
                         &message,
                     );
-                    self.toast_manager.add_toast(
-                        format!("Training failed: {}", message),
-                        ToastType::Error,
-                    );
-                },
+                    self.toast_manager
+                        .add_toast(format!("Training failed: {}", message), ToastType::Error);
+                }
                 NetToUi::RelayModeChanged { mode } => {
                     self.network_panel.update_relay_mode(mode);
                     self.toast_manager.add_toast(
                         format!("Relay mode changed to: {:?}", mode),
                         ToastType::Info,
                     );
-                },
+                }
                 NetToUi::TrainingConsentStatus { enabled } => {
                     self.network_panel.update_training_consent(enabled);
-                },
+                }
                 NetToUi::RelayStatsUpdate { stats } => {
                     // Update relay stats in network panel
                     let credits = stats.calculate_credits();
                     self.network_panel.update_relay_credits(credits);
-                },
+                }
                 NetToUi::TrainingCreditsEarned { credits } => {
                     self.network_panel.update_relay_credits(credits);
                     self.toast_manager.add_toast(
                         format!("Earned {} training credits!", credits),
                         ToastType::Success,
                     );
-                },
+                }
             }
         }
     }
 
     fn render_main_menu(&mut self, ui: &mut egui::Ui) {
         // Extract data we need before the closure
-        let available_games_list = if let View::MainMenu { available_games, .. } = &self.current_view {
+        let available_games_list = if let View::MainMenu {
+            available_games, ..
+        } = &self.current_view
+        {
             available_games.clone()
         } else {
             vec![]
         };
-        
+
         if let View::MainMenu { .. } = &mut self.current_view {
             // Title centered
             ui.vertical_centered(|ui| {
@@ -697,101 +753,116 @@ impl App {
                 ui.label(format!("Version: {}", VERSION));
                 ui.add_space(10.0);
             });
-            
+
             // Main content in two columns
             ui.columns(2, |columns| {
                 // Left column: Game Menu with simple buttons
                 columns[0].vertical_centered(|ui| {
                     ui.heading("Game Menu");
                     ui.add_space(20.0);
-                    
+
                     // Create Game button - prominent and always visible
                     let create_enabled = self.current_ticket.is_some();
                     let create_button = ui.add_sized(
                         egui::Vec2::new(200.0, 50.0),
-                        egui::Button::new("Create Game")
-                            .fill(if create_enabled { egui::Color32::from_rgb(0, 150, 0) } else { egui::Color32::from_rgb(100, 100, 100) })
+                        egui::Button::new("Create Game").fill(if create_enabled {
+                            egui::Color32::from_rgb(0, 150, 0)
+                        } else {
+                            egui::Color32::from_rgb(100, 100, 100)
+                        }),
                     );
-                    
+
                     if create_button.clicked() && create_enabled {
                         let _ = self.ui_tx.send(UiToNet::CreateGame { board_size: 9 });
                     }
-                    
+
                     if !create_enabled {
                         ui.label("(Waiting for network...)");
                     }
-                    
+
                     ui.add_space(15.0);
-                    
+
                     // Join Game button
-                    if ui.add_sized(
-                        egui::Vec2::new(200.0, 50.0),
-                        egui::Button::new("Join Game")
-                            .fill(egui::Color32::from_rgb(0, 100, 200))
-                    ).clicked() {
+                    if ui
+                        .add_sized(
+                            egui::Vec2::new(200.0, 50.0),
+                            egui::Button::new("Join Game")
+                                .fill(egui::Color32::from_rgb(0, 100, 200)),
+                        )
+                        .clicked()
+                    {
                         self.show_ticket_modal = true;
                     }
-                    
+
                     ui.add_space(15.0);
-                    
+
                     // Offline Game button
-                    if ui.add_sized(
-                        egui::Vec2::new(200.0, 50.0),
-                        egui::Button::new("Offline Game")
-                            .fill(egui::Color32::from_rgb(100, 100, 200))
-                    ).clicked() {
+                    if ui
+                        .add_sized(
+                            egui::Vec2::new(200.0, 50.0),
+                            egui::Button::new("Offline Game")
+                                .fill(egui::Color32::from_rgb(100, 100, 200)),
+                        )
+                        .clicked()
+                    {
                         self.current_view = View::OfflineGame;
                     }
-                    
+
                     ui.add_space(30.0);
-                    
+
                     // Settings button (currently no-op, but visible)
-                    if ui.add_sized(
-                        egui::Vec2::new(200.0, 40.0),
-                        egui::Button::new("Settings")
-                            .fill(egui::Color32::from_rgb(80, 80, 80))
-                    ).clicked() {
+                    if ui
+                        .add_sized(
+                            egui::Vec2::new(200.0, 40.0),
+                            egui::Button::new("Settings").fill(egui::Color32::from_rgb(80, 80, 80)),
+                        )
+                        .clicked()
+                    {
                         // TODO: Implement settings view
-                        self.toast_manager.add_toast(
-                            "Settings not yet implemented",
-                            ToastType::Info,
-                        );
+                        self.toast_manager
+                            .add_toast("Settings not yet implemented", ToastType::Info);
                     }
                 });
-                
+
                 // Right column: Network status and available games
                 columns[1].vertical(|ui| {
                     ui.heading("Network Status");
-                    
+
                     if let Some(node_id) = &self.node_id {
                         ui.horizontal(|ui| {
                             ui.label("Node ID:");
                             ui.label(format!("{:.8}...", node_id));
                             if ui.button("Copy").clicked() {
-                                if let Err(e) = self.clipboard_helper.copy_ticket(node_id, &mut self.toast_manager) {
+                                if let Err(e) = self
+                                    .clipboard_helper
+                                    .copy_ticket(node_id, &mut self.toast_manager)
+                                {
                                     tracing::warn!("Failed to copy node ID: {}", e);
                                 }
                             }
                         });
                     }
-                    
+
                     ui.horizontal(|ui| {
                         if ui.button("Generate Ticket").clicked() {
                             let _ = self.ui_tx.send(UiToNet::GetTicket);
                         }
-                        
+
                         if ui.button("Refresh Games").clicked() {
                             let _ = self.ui_tx.send(UiToNet::RefreshGames);
                         }
                     });
-                    
+
                     if let Some(ticket) = &self.current_ticket {
                         let is_stub = ticket == "loopback-ticket";
                         let relay_status = ticket.len() > 50;
-                        
+
                         ui.horizontal(|ui| {
                             if is_stub {
-                                ui.colored_label(egui::Color32::from_rgb(100, 100, 200), "Status: Local Mode");
+                                ui.colored_label(
+                                    egui::Color32::from_rgb(100, 100, 200),
+                                    "Status: Local Mode",
+                                );
                             } else if relay_status {
                                 ui.colored_label(egui::Color32::GREEN, "Status: Network Ready");
                             } else {
@@ -801,17 +872,25 @@ impl App {
                             }
                         });
                     }
-                    
+
                     ui.separator();
                     ui.heading("Available Games");
-                    
+
                     if available_games_list.is_empty() {
                         ui.label("No games available");
                         ui.label("Create a game or wait for others");
                     } else {
                         for game in &available_games_list {
-                            if ui.button(format!("Join Game {} ({}×{})", game.id, game.board_size, game.board_size)).clicked() {
-                                let _ = self.ui_tx.send(UiToNet::JoinGame { game_id: game.id.clone() });
+                            if ui
+                                .button(format!(
+                                    "Join Game {} ({}×{})",
+                                    game.id, game.board_size, game.board_size
+                                ))
+                                .clicked()
+                            {
+                                let _ = self.ui_tx.send(UiToNet::JoinGame {
+                                    game_id: game.id.clone(),
+                                });
                             }
                         }
                     }
@@ -824,17 +903,17 @@ impl App {
         if let View::Lobby { game_id, .. } = &self.current_view {
             ui.heading("Waiting for opponent...");
             ui.add_space(8.0);
-            
+
             // Show game code with clear labeling
             show_labeled_identifier(ui, IdentifierType::GameCode, game_id);
-            
+
             ui.add_space(12.0);
-            
+
             // Show ticket when available
             if let Some(ticket) = &self.current_ticket {
                 show_labeled_identifier(ui, IdentifierType::ConnectionTicket, ticket);
             }
-            
+
             if ui.button("Leave Game").clicked() {
                 let _ = self.ui_tx.send(UiToNet::LeaveGame);
                 let _ = self.ui_tx.send(UiToNet::Shutdown);
@@ -843,12 +922,17 @@ impl App {
     }
 
     fn render_game(&mut self, ui: &mut egui::Ui) {
-        if let View::Game { game_id, game_state, .. } = &self.current_view {
+        if let View::Game {
+            game_id,
+            game_state,
+            ..
+        } = &self.current_view
+        {
             // Store the game ID in UI memory for the board widget to access
             ui.ctx().data_mut(|data| {
                 data.insert_temp(egui::Id::new("current_game_id"), game_id.clone());
             });
-            
+
             // Center the board with minimal UI chrome
             ui.vertical_centered(|ui| {
                 // Compact status bar at top
@@ -858,67 +942,84 @@ impl App {
                         Color::White => "White",
                     };
                     ui.label(format!("Current player: {}", current_player));
-                    
+
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         // Connection status on the right
                         self.connection_status.show(ui);
                     });
                 });
-                
+
                 ui.add_space(8.0);
-                
+
                 // Board takes center stage
                 if let Some(coord) = self.board_widget.render(ui, game_state, Some(&self.ui_tx)) {
-                let color = game_state.current_player;
-                let mv = Move::Place { 
-                    x: coord.x, 
-                    y: coord.y, 
-                    color 
-                };
-                
-                // Optimistic UI: Show move as pending immediately
-                self.board_widget.show_pending_move(coord, color);
-                
-                // Send move to network
-                let _ = self.ui_tx.send(UiToNet::MakeMove { mv, board_size: None });
-                // Only request ghost moves if we have completed enough games
-                if self.config.games_finished >= 5 {
-                    let _ = self.ui_tx.send(UiToNet::GetGhostMoves);
+                    let color = game_state.current_player;
+                    let mv = Move::Place {
+                        x: coord.x,
+                        y: coord.y,
+                        color,
+                    };
+
+                    // Optimistic UI: Show move as pending immediately
+                    self.board_widget.show_pending_move(coord, color);
+
+                    // Send move to network
+                    let _ = self.ui_tx.send(UiToNet::MakeMove {
+                        mv,
+                        board_size: None,
+                    });
+                    // Only request ghost moves if we have completed enough games
+                    if self.config.games_finished >= 5 {
+                        let _ = self.ui_tx.send(UiToNet::GetGhostMoves);
+                    }
                 }
-            }
-            
-            // Render heat map overlays on the board
-            if let (Some(board_rect), Some(cell_size)) = ui.ctx().data(|data| {
-                (
-                    data.get_temp::<egui::Rect>(egui::Id::new("board_rect")),
-                    data.get_temp::<f32>(egui::Id::new("board_cell_size")),
-                )
-            }) {
-                // Single heat map overlay
-                if self.heat_map.is_enabled() {
-                    self.heat_map.render_overlay(ui, board_rect, cell_size, game_state);
+
+                // Render heat map overlays on the board
+                if let (Some(board_rect), Some(cell_size)) = ui.ctx().data(|data| {
+                    (
+                        data.get_temp::<egui::Rect>(egui::Id::new("board_rect")),
+                        data.get_temp::<f32>(egui::Id::new("board_cell_size")),
+                    )
+                }) {
+                    // Single heat map overlay
+                    if self.heat_map.is_enabled() {
+                        self.heat_map
+                            .render_overlay(ui, board_rect, cell_size, game_state);
+                    }
+
+                    // Dual heat map overlay (sword & shield)
+                    if self.dual_heat_map.is_enabled() {
+                        // TODO: Get actual predictions from neural networks
+                        let sword_predictions = [[0.0; 19]; 19]; // Placeholder
+                        let shield_predictions = [[0.0; 19]; 19]; // Placeholder
+                        self.dual_heat_map.render_overlay(
+                            ui,
+                            board_rect,
+                            cell_size,
+                            game_state,
+                            &sword_predictions,
+                            &shield_predictions,
+                        );
+                    }
                 }
-                
-                // Dual heat map overlay (sword & shield)
-                if self.dual_heat_map.is_enabled() {
-                    // TODO: Get actual predictions from neural networks
-                    let sword_predictions = [[0.0; 19]; 19]; // Placeholder
-                    let shield_predictions = [[0.0; 19]; 19]; // Placeholder
-                    self.dual_heat_map.render_overlay(ui, board_rect, cell_size, game_state, &sword_predictions, &shield_predictions);
-                }
-            }
-            
+
                 // Game controls at bottom
                 ui.add_space(8.0);
                 ui.horizontal(|ui| {
                     if ui.button("Pass").clicked() {
-                        let _ = self.ui_tx.send(UiToNet::MakeMove { mv: Move::Pass, board_size: None });
+                        let _ = self.ui_tx.send(UiToNet::MakeMove {
+                            mv: Move::Pass,
+                            board_size: None,
+                        });
                         if self.config.games_finished >= 5 {
                             let _ = self.ui_tx.send(UiToNet::GetGhostMoves);
                         }
                     }
                     if ui.button("Resign").clicked() {
-                        let _ = self.ui_tx.send(UiToNet::MakeMove { mv: Move::Resign, board_size: None });
+                        let _ = self.ui_tx.send(UiToNet::MakeMove {
+                            mv: Move::Resign,
+                            board_size: None,
+                        });
                         if self.config.games_finished >= 5 {
                             let _ = self.ui_tx.send(UiToNet::GetGhostMoves);
                         }
@@ -932,34 +1033,53 @@ impl App {
             });
         }
     }
-    
+
     fn render_score_dialog(&mut self, ui: &mut egui::Ui) {
-        if let View::ScoreDialog { game_id, game_state: _, score_proof, dead_stones: _, score_pending: _, score_accepted } = &mut self.current_view.clone() {
+        if let View::ScoreDialog {
+            game_id,
+            game_state: _,
+            score_proof,
+            dead_stones: _,
+            score_pending: _,
+            score_accepted,
+        } = &mut self.current_view.clone()
+        {
             ui.heading("Game Finished");
             ui.label(format!("Game ID: {}", game_id));
             ui.separator();
-            
+
             // Display score details
             ui.label(format!("Black territory: {}", score_proof.territory_black));
             ui.label(format!("White territory: {}", score_proof.territory_white));
             ui.label(format!("Black captures: {}", score_proof.captures_black));
             ui.label(format!("White captures: {}", score_proof.captures_white));
             ui.label(format!("Komi: {}", score_proof.komi));
-            
+
             let final_score = score_proof.final_score;
-            let winner = if final_score > 0 { "Black" } else if final_score < 0 { "White" } else { "Draw" };
+            let winner = if final_score > 0 {
+                "Black"
+            } else if final_score < 0 {
+                "White"
+            } else {
+                "Draw"
+            };
             ui.heading(format!("Winner: {} (by {})", winner, final_score.abs()));
             ui.separator();
-            
+
             if !*score_accepted {
                 if ui.button("Accept Result").clicked() {
                     // Send AcceptScore message to worker
-                    let _ = self.ui_tx.send(UiToNet::AcceptScore { 
-                        score_proof: score_proof.clone() 
+                    let _ = self.ui_tx.send(UiToNet::AcceptScore {
+                        score_proof: score_proof.clone(),
                     });
-                    
+
                     // Update UI state directly without creating a new View
-                    if let View::ScoreDialog { score_accepted: ref mut acc, score_pending: ref mut pend, .. } = self.current_view {
+                    if let View::ScoreDialog {
+                        score_accepted: ref mut acc,
+                        score_pending: ref mut pend,
+                        ..
+                    } = self.current_view
+                    {
                         *acc = true;
                         *pend = false;
                     }
@@ -969,7 +1089,7 @@ impl App {
                 if ui.button("Return to Main Menu").clicked() {
                     // Increment completed games counter
                     self.config.games_finished += 1;
-                    
+
                     // Return to main menu
                     self.current_view = View::default();
                     let _ = self.ui_tx.send(UiToNet::LeaveGame);
@@ -977,74 +1097,75 @@ impl App {
             }
         }
     }
-    
+
     fn render_offline_game(&mut self, ui: &mut egui::Ui) {
         // Add a back button at the top
         if ui.button("← Back to Menu").clicked() {
             self.current_view = View::default();
         }
-        
+
         ui.separator();
-        
+
         // Render the offline game
         self.offline_game.ui(ui.ctx());
     }
-    
+
     fn render_debug_overlay(&mut self, ctx: &egui::Context) {
         if !self.show_overlay {
             return;
         }
-        
+
         egui::Window::new("Debug Overlay")
             .collapsible(false)
             .resizable(false)
             .anchor(egui::Align2::RIGHT_TOP, egui::Vec2::new(-10.0, 10.0))
             .show(ctx, |ui| {
                 ui.label(format!("Player: {}", self.player_name));
-                
+
                 let current_view_name = match &self.current_view {
                     View::MainMenu { .. } => "MainMenu",
-                    View::Lobby { .. } => "Lobby", 
+                    View::Lobby { .. } => "Lobby",
                     View::Game { .. } => "Game",
                     View::ScoreDialog { .. } => "ScoreDialog",
                     View::OfflineGame => "OfflineGame",
                 };
                 ui.label(format!("View: {}", current_view_name));
-                
-                if let View::Lobby { game_id, .. } | View::Game { game_id, .. } = &self.current_view {
+
+                if let View::Lobby { game_id, .. } | View::Game { game_id, .. } = &self.current_view
+                {
                     ui.label(format!("Game ID: {}", game_id));
                 }
-                
+
                 if let Some(hash) = &self.last_blob_hash {
                     ui.label(format!("Last Blob: {}", hash));
                 } else {
                     ui.label("Last Blob: None");
                 }
-                
+
                 ui.label(format!("RX Queue: {}", self.rx_queue_length));
-                
+
                 if let View::Game { game_state, .. } = &self.current_view {
                     ui.label(format!("Turn: {:?}", game_state.current_player));
                     ui.label(format!("Moves: {}", game_state.moves.len()));
                 }
-                
+
                 ui.separator();
                 if ui.button("Run NAT Report").clicked() {
                     let _ = self.ui_tx.send(UiToNet::RunNetReport);
                 }
-                
+
                 if let Some(report) = &self.nat_report {
                     ui.label("NAT Report:");
                     ui.text_edit_multiline(&mut report.clone());
                 }
             });
     }
-    
+
     /// Check for updates if enough time has passed since last check
     fn check_for_updates_if_needed(&mut self) {
         // Disabled for now
         return;
-        
+
         // Alternative: Check from URL (commented out for now)
         /*
         let update_url = "https://example.com/p2pgo/update_manifest.json";
@@ -1061,7 +1182,7 @@ impl App {
         });
         */
     }
-    
+
     /// Start the update process
     fn start_update_process(&mut self) {
         // Disabled for now
@@ -1074,18 +1195,18 @@ impl eframe::App for App {
         // Apply the dark theme for better contrast
         crate::dark_theme::apply_dark_theme(ctx);
         crate::dark_theme::apply_compact_spacing(ctx);
-        
+
         self.handle_network_messages();
-        
+
         // Update network panel
         self.network_panel.update_ui(ctx);
-        
+
         // Update toast notifications
         self.toast_manager.update(ctx);
-        
+
         // Check for updates periodically
         // self.check_for_updates_if_needed();
-        
+
         // Show update notification if available
         // if let Some(ref mut notification) = self.update_notification {
         //     match notification.show(ctx) {
@@ -1104,30 +1225,30 @@ impl eframe::App for App {
         //         UpdateAction::None => {}
         //     }
         // }
-        
+
         // Show update dialog if in progress
         // if let Some(ref mut dialog) = self.update_dialog {
         //     if !dialog.show(ctx) {
         //         self.update_dialog = None;
         //     }
         // }
-        
+
         // Handle F1 key to toggle debug overlay
         if ctx.input(|i| i.key_pressed(egui::Key::F1)) {
             self.show_overlay = !self.show_overlay;
             tracing::debug!("Debug overlay toggled: {}", self.show_overlay);
         }
-        
+
         // Top menu bar with network status
         egui::TopBottomPanel::top("top_panel").show(ctx, |ui| {
             ui.horizontal(|ui| {
                 ui.label("P2P Go");
                 ui.separator();
-                
+
                 // Show connection status widget
                 self.connection_status.show(ui);
                 ui.separator();
-                
+
                 // Add menu buttons
                 if ui.button("🧠 Neural Training").clicked() {
                     self.show_neural_training = !self.show_neural_training;
@@ -1135,7 +1256,7 @@ impl eframe::App for App {
                 if ui.button("📋 Error Log").clicked() {
                     self.show_error_log = !self.show_error_log;
                 }
-                
+
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     if let Some(node_id) = &self.node_id {
                         ui.label(format!("Node: {:.8}...", node_id));
@@ -1143,7 +1264,7 @@ impl eframe::App for App {
                 });
             });
         });
-        
+
         egui::CentralPanel::default().show(ctx, |ui| {
             match &self.current_view {
                 View::MainMenu { .. } => self.render_main_menu(ui),
@@ -1152,7 +1273,7 @@ impl eframe::App for App {
                 View::ScoreDialog { .. } => self.render_score_dialog(ui),
                 View::OfflineGame => self.render_offline_game(ui),
             }
-            
+
             if let Some(error) = self.error_msg.clone() {
                 egui::Window::new("Error")
                     .collapsible(false)
@@ -1169,32 +1290,32 @@ impl eframe::App for App {
                         });
                     });
             }
-            
+
             if self.show_ticket_modal {
                 egui::Window::new("🔑 Direct Connection")
                     .collapsible(false)
                     .resizable(false)
                     .show(ctx, |ui| {
                         ui.add_space(8.0);
-                        
+
                         // Use the new labeled input
                         show_labeled_input(
-                            ui, 
-                            IdentifierType::ConnectionTicket, 
+                            ui,
+                            IdentifierType::ConnectionTicket,
                             &mut self.ticket_input,
-                            "Paste connection ticket here..."
+                            "Paste connection ticket here...",
                         );
-                        
+
                         ui.add_space(12.0);
                         ui.horizontal(|ui| {
                             let connect_btn = ui.add_enabled(
                                 !self.ticket_input.trim().is_empty(),
-                                egui::Button::new("Connect")
+                                egui::Button::new("Connect"),
                             );
-                            
+
                             if connect_btn.clicked() {
-                                let _ = self.ui_tx.send(UiToNet::ConnectByTicket { 
-                                    ticket: self.ticket_input.clone() 
+                                let _ = self.ui_tx.send(UiToNet::ConnectByTicket {
+                                    ticket: self.ticket_input.clone(),
                                 });
                                 self.ticket_input.clear();
                                 self.show_ticket_modal = false;
@@ -1207,12 +1328,12 @@ impl eframe::App for App {
                     });
             }
         });
-        
+
         // Show network diagnostics panel
         if let Some(action) = self.network_panel.show(ctx) {
             let _ = self.ui_tx.send(action);
         }
-        
+
         // Show neural training UI window
         if self.show_neural_training {
             egui::Window::new("Neural Network Training")
@@ -1222,10 +1343,8 @@ impl eframe::App for App {
                 .show(ctx, |ui| {
                     if let Some(training_data) = self.neural_training_ui.render(ui) {
                         // Handle training data creation
-                        self.toast_manager.add_toast(
-                            "Training data created successfully",
-                            ToastType::Success,
-                        );
+                        self.toast_manager
+                            .add_toast("Training data created successfully", ToastType::Success);
                         // Log the event
                         self.error_logger.log(
                             crate::error_logger::ErrorLevel::Info,
@@ -1235,7 +1354,7 @@ impl eframe::App for App {
                     }
                 });
         }
-        
+
         // Show error log viewer window
         if self.show_error_log {
             egui::Window::new("Error Log")
@@ -1246,7 +1365,7 @@ impl eframe::App for App {
                     self.error_log_viewer.render(ui, &self.error_logger);
                 });
         }
-        
+
         // Show heat map controls window if in game
         if let View::Game { .. } = &self.current_view {
             egui::Window::new("Heat Map Controls")
@@ -1256,15 +1375,15 @@ impl eframe::App for App {
                     // Single heat map controls
                     ui.heading("Single Network Heat Map");
                     self.heat_map.render_controls(ui);
-                    
+
                     ui.separator();
-                    
+
                     // Dual heat map controls
                     ui.heading("Dual Network Heat Map");
                     self.dual_heat_map.render_controls(ui);
-                    
+
                     ui.separator();
-                    
+
                     // Keyboard shortcuts
                     ui.label("Shortcuts:");
                     ui.label("H - Toggle single heat map");
@@ -1273,7 +1392,7 @@ impl eframe::App for App {
                     ui.label("Shift+S - Toggle shield network");
                 });
         }
-        
+
         // Handle keyboard shortcuts for heat maps
         if ctx.input(|i| i.key_pressed(egui::Key::H)) {
             self.heat_map.toggle();
@@ -1292,12 +1411,13 @@ impl eframe::App for App {
                 self.dual_heat_map.toggle_sword();
             }
         }
-        
+
         // Update neural overlay if in game
         if let View::Game { game_state, .. } = &self.current_view {
-            self.neural_overlay.update(game_state, ctx.input(|i| i.stable_dt));
+            self.neural_overlay
+                .update(game_state, ctx.input(|i| i.stable_dt));
         }
-        
+
         // Render neural overlay controls in side panel during game
         if matches!(self.current_view, View::Game { .. }) {
             egui::SidePanel::right("neural_controls")
@@ -1305,19 +1425,19 @@ impl eframe::App for App {
                 .default_width(200.0)
                 .show(ctx, |ui| {
                     self.neural_overlay.render_controls(ui);
-                    
+
                     ui.separator();
-                    
+
                     // Show win probability
                     if let View::Game { game_state, .. } = &self.current_view {
                         self.neural_overlay.render_win_probability(ui, game_state);
                     }
                 });
         }
-        
+
         // Render debug overlay on top
         self.render_debug_overlay(ctx);
-        
+
         // Optimize repaint strategy based on focus and network activity
         if ctx.input(|i| !i.focused) && self.ui_rx.is_empty() {
             // Window is unfocused and no network messages - reduce repaint frequency

@@ -1,6 +1,6 @@
 //! Structured logging with correlation IDs for distributed tracing
 
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::SystemTime;
 use uuid::Uuid;
@@ -28,7 +28,7 @@ impl CorrelationId {
             Uuid::new_v4().simple(),
             REQUEST_COUNTER.fetch_add(1, Ordering::SeqCst)
         );
-        
+
         Self {
             request_id,
             session_id,
@@ -36,13 +36,13 @@ impl CorrelationId {
             peer_id: None,
         }
     }
-    
+
     /// Add game context
     pub fn with_game(mut self, game_id: String) -> Self {
         self.game_id = Some(game_id);
         self
     }
-    
+
     /// Add peer context
     pub fn with_peer(mut self, peer_id: String) -> Self {
         self.peer_id = Some(peer_id);
@@ -69,12 +69,7 @@ pub struct LogEntry {
 }
 
 impl LogEntry {
-    pub fn new(
-        level: &str,
-        component: &str,
-        message: &str,
-        correlation: CorrelationId,
-    ) -> Self {
+    pub fn new(level: &str, component: &str, message: &str, correlation: CorrelationId) -> Self {
         Self {
             timestamp: chrono::Utc::now().to_rfc3339(),
             level: level.to_string(),
@@ -84,7 +79,7 @@ impl LogEntry {
             fields: serde_json::json!({}),
         }
     }
-    
+
     /// Add additional context fields
     pub fn with_fields(mut self, fields: serde_json::Value) -> Self {
         self.fields = fields;
@@ -96,7 +91,7 @@ impl LogEntry {
 pub trait StructuredLogger: Send + Sync {
     /// Log a structured entry
     fn log(&self, entry: LogEntry);
-    
+
     /// Log with correlation ID
     fn log_with_correlation(
         &self,
@@ -145,27 +140,27 @@ impl ContextLogger {
             component: component.to_string(),
         }
     }
-    
+
     pub fn debug(&self, message: &str) {
         self.log("DEBUG", message, None);
     }
-    
+
     pub fn info(&self, message: &str) {
         self.log("INFO", message, None);
     }
-    
+
     pub fn warn(&self, message: &str) {
         self.log("WARN", message, None);
     }
-    
+
     pub fn error(&self, message: &str) {
         self.log("ERROR", message, None);
     }
-    
+
     pub fn with_fields(&self, message: &str, fields: serde_json::Value) {
         self.log("INFO", message, Some(fields));
     }
-    
+
     fn log(&self, level: &str, message: &str, fields: Option<serde_json::Value>) {
         self.inner.log_with_correlation(
             level,
@@ -188,7 +183,7 @@ impl PerfTimer {
     pub fn new(operation: &str, logger: ContextLogger) -> Self {
         let start = SystemTime::now();
         logger.debug(&format!("Starting {}", operation));
-        
+
         Self {
             start,
             operation: operation.to_string(),
@@ -205,7 +200,7 @@ impl Drop for PerfTimer {
                 serde_json::json!({
                     "duration_ms": duration.as_millis(),
                     "operation": self.operation,
-                })
+                }),
             );
         }
     }
@@ -214,25 +209,25 @@ impl Drop for PerfTimer {
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     #[test]
     fn test_correlation_id_creation() {
         let corr = CorrelationId::new("session123".to_string())
             .with_game("game456".to_string())
             .with_peer("peer789".to_string());
-        
+
         assert_eq!(corr.session_id, "session123");
         assert_eq!(corr.game_id, Some("game456".to_string()));
         assert_eq!(corr.peer_id, Some("peer789".to_string()));
         assert!(!corr.request_id.is_empty());
     }
-    
+
     #[test]
     fn test_log_entry_serialization() {
         let corr = CorrelationId::new("test-session".to_string());
         let entry = LogEntry::new("INFO", "test-component", "Test message", corr)
             .with_fields(serde_json::json!({"key": "value"}));
-        
+
         let json = serde_json::to_string(&entry).unwrap();
         assert!(json.contains("\"level\":\"INFO\""));
         assert!(json.contains("\"component\":\"test-component\""));

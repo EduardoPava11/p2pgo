@@ -1,6 +1,6 @@
 use anyhow::Result;
 use std::time::{Duration, Instant};
-use tracing::{info};
+use tracing::info;
 
 use crate::rna::{RNAMessage, RNAType};
 
@@ -118,161 +118,166 @@ impl NetworkBenchmark {
             config,
         }
     }
-    
+
     /// Run all benchmarks
     pub async fn run_all(&mut self, peer_addresses: Vec<String>) -> Result<BenchmarkResults> {
-        info!("Starting network benchmarks with {} peers", peer_addresses.len());
-        
+        info!(
+            "Starting network benchmarks with {} peers",
+            peer_addresses.len()
+        );
+
         let start_time = Instant::now();
-        
+
         if self.config.test_bandwidth {
             info!("Running bandwidth test...");
             self.test_bandwidth(&peer_addresses).await?;
         }
-        
+
         if self.config.test_latency {
             info!("Running latency test...");
             self.test_latency(&peer_addresses).await?;
         }
-        
+
         if self.config.test_relay_capacity {
             info!("Running relay capacity test...");
             self.test_relay_capacity(&peer_addresses).await?;
         }
-        
+
         self.results.overall.duration_secs = start_time.elapsed().as_secs_f64();
-        
+
         Ok(self.results.clone())
     }
-    
+
     /// Test bandwidth capacity
     async fn test_bandwidth(&mut self, peers: &[String]) -> Result<()> {
         let mut upload_samples = Vec::new();
         let mut download_samples = Vec::new();
-        
+
         // Create test RNA messages of specified size
         let test_rna = self.create_test_rna(self.config.message_size);
-        
+
         for _peer in peers.iter().take(self.config.concurrent_connections) {
             let start = Instant::now();
             let mut bytes_sent = 0;
             let mut bytes_received = 0;
-            
+
             // Send messages for duration
             let test_start = Instant::now();
             while test_start.elapsed() < self.config.test_duration / 10 {
                 // Send message
                 bytes_sent += test_rna.data.len();
-                
+
                 // Simulate receive
                 bytes_received += test_rna.data.len();
-                
+
                 // Calculate current speeds
                 let elapsed = start.elapsed().as_secs_f64();
                 if elapsed > 0.0 {
                     let upload_kbps = (bytes_sent as f64 / 1024.0) / elapsed;
                     let download_kbps = (bytes_received as f64 / 1024.0) / elapsed;
-                    
+
                     upload_samples.push(upload_kbps);
                     download_samples.push(download_kbps);
                 }
-                
+
                 // Small delay to simulate network
                 tokio::time::sleep(Duration::from_millis(10)).await;
             }
         }
-        
+
         // Calculate results
         if !upload_samples.is_empty() {
             self.results.bandwidth.upload_speed_kbps = average(&upload_samples);
-            self.results.bandwidth.peak_upload_kbps = upload_samples.iter().cloned().fold(0.0, f64::max);
+            self.results.bandwidth.peak_upload_kbps =
+                upload_samples.iter().cloned().fold(0.0, f64::max);
         }
-        
+
         if !download_samples.is_empty() {
             self.results.bandwidth.download_speed_kbps = average(&download_samples);
-            self.results.bandwidth.peak_download_kbps = download_samples.iter().cloned().fold(0.0, f64::max);
+            self.results.bandwidth.peak_download_kbps =
+                download_samples.iter().cloned().fold(0.0, f64::max);
         }
-        
-        self.results.bandwidth.sustained_throughput_kbps = 
-            (self.results.bandwidth.upload_speed_kbps + self.results.bandwidth.download_speed_kbps) / 2.0;
-        
+
+        self.results.bandwidth.sustained_throughput_kbps =
+            (self.results.bandwidth.upload_speed_kbps + self.results.bandwidth.download_speed_kbps)
+                / 2.0;
+
         Ok(())
     }
-    
+
     /// Test network latency
     async fn test_latency(&mut self, peers: &[String]) -> Result<()> {
         let mut rtt_samples = Vec::new();
-        
+
         for _peer in peers.iter().take(self.config.concurrent_connections) {
             for _ in 0..100 {
                 let start = Instant::now();
-                
+
                 // Simulate ping
                 tokio::time::sleep(Duration::from_millis(5)).await;
-                
+
                 let rtt = start.elapsed().as_secs_f64() * 1000.0;
                 rtt_samples.push(rtt);
             }
         }
-        
+
         if !rtt_samples.is_empty() {
             rtt_samples.sort_by(|a, b| a.partial_cmp(b).unwrap());
-            
+
             self.results.latency.rtt_min_ms = rtt_samples[0];
             self.results.latency.rtt_max_ms = rtt_samples[rtt_samples.len() - 1];
             self.results.latency.rtt_avg_ms = average(&rtt_samples);
             self.results.latency.rtt_stddev_ms = stddev(&rtt_samples);
-            
+
             // Percentiles
             self.results.latency.rtt_p50_ms = percentile(&rtt_samples, 50.0);
             self.results.latency.rtt_p95_ms = percentile(&rtt_samples, 95.0);
             self.results.latency.rtt_p99_ms = percentile(&rtt_samples, 99.0);
-            
+
             // Calculate jitter
             let mut jitter_samples = Vec::new();
             for i in 1..rtt_samples.len() {
-                jitter_samples.push((rtt_samples[i] - rtt_samples[i-1]).abs());
+                jitter_samples.push((rtt_samples[i] - rtt_samples[i - 1]).abs());
             }
             self.results.latency.jitter_ms = average(&jitter_samples);
         }
-        
+
         Ok(())
     }
-    
+
     /// Test relay capacity
     async fn test_relay_capacity(&mut self, _peers: &[String]) -> Result<()> {
         // Test maximum connections
         self.results.relay_capacity.max_connections = self.config.concurrent_connections;
-        
+
         // Test message throughput
         let start = Instant::now();
         let mut message_count = 0;
-        
+
         while start.elapsed() < Duration::from_secs(10) {
             message_count += 1;
             tokio::time::sleep(Duration::from_millis(1)).await;
         }
-        
-        self.results.relay_capacity.messages_per_second = 
+
+        self.results.relay_capacity.messages_per_second =
             message_count as f64 / start.elapsed().as_secs_f64();
-        
+
         // Test RNA propagation time
         let prop_start = Instant::now();
         // Simulate propagation through network
         tokio::time::sleep(Duration::from_millis(50)).await;
-        self.results.relay_capacity.rna_propagation_ms = 
+        self.results.relay_capacity.rna_propagation_ms =
             prop_start.elapsed().as_secs_f64() * 1000.0;
-        
+
         // Test relay setup time
         let setup_start = Instant::now();
         // Simulate relay setup
         tokio::time::sleep(Duration::from_millis(100)).await;
-        self.results.relay_capacity.relay_setup_ms = 
-            setup_start.elapsed().as_secs_f64() * 1000.0;
-        
+        self.results.relay_capacity.relay_setup_ms = setup_start.elapsed().as_secs_f64() * 1000.0;
+
         Ok(())
     }
-    
+
     /// Create test RNA message
     fn create_test_rna(&self, size: usize) -> RNAMessage {
         RNAMessage {
@@ -291,7 +296,7 @@ impl NetworkBenchmark {
             data: vec![0u8; size],
         }
     }
-    
+
     /// Generate benchmark report
     pub fn generate_report(&self) -> String {
         format!(
@@ -372,9 +377,8 @@ fn stddev(samples: &[f64]) -> f64 {
         return 0.0;
     }
     let avg = average(samples);
-    let variance = samples.iter()
-        .map(|x| (x - avg).powi(2))
-        .sum::<f64>() / (samples.len() - 1) as f64;
+    let variance =
+        samples.iter().map(|x| (x - avg).powi(2)).sum::<f64>() / (samples.len() - 1) as f64;
     variance.sqrt()
 }
 
@@ -389,11 +393,11 @@ fn percentile(sorted_samples: &[f64], p: f64) -> f64 {
 // UUID helper
 mod uuid {
     use std::sync::atomic::{AtomicU64, Ordering};
-    
+
     static COUNTER: AtomicU64 = AtomicU64::new(0);
-    
+
     pub struct Uuid;
-    
+
     impl Uuid {
         pub fn new_v4() -> String {
             format!("bench-{}", COUNTER.fetch_add(1, Ordering::SeqCst))

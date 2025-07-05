@@ -10,27 +10,27 @@
 //! - Snapshot persistence and recovery
 //! - Connection management and reliability
 
-use std::sync::Arc;
-use tokio::sync::{broadcast, RwLock};
-use anyhow::Result;
-use serde::{Serialize, Deserialize};
-use p2pgo_core::{Move, GameState, GameEvent};
-use crate::{GameId, NodeContext};
 use crate::blob_store::MoveChain;
+use crate::{GameId, NodeContext};
+use anyhow::Result;
 use libp2p::PeerId;
+use p2pgo_core::{GameEvent, GameState, Move};
+use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, VecDeque};
-use tokio::task::JoinHandle;
+use std::sync::Arc;
 use tokio::sync::Mutex;
+use tokio::sync::{broadcast, RwLock};
+use tokio::task::JoinHandle;
 
 // Module declarations
 pub mod core;
-pub mod state;
-pub mod networking;
-pub mod sync;
-pub mod storage;
 pub mod crypto;
-pub mod registry;
 pub mod messages;
+pub mod networking;
+pub mod registry;
+pub mod state;
+pub mod storage;
+pub mod sync;
 
 // Re-exports
 pub use messages::*;
@@ -57,34 +57,34 @@ pub struct GameChannel {
     pub(crate) events_tx: broadcast::Sender<GameEvent>,
     /// Latest game state
     pub(crate) latest_state: Arc<RwLock<Option<GameState>>>,
-    
+
     /// Timestamp when the last snapshot was written
     pub(crate) last_snapshot_time: Arc<RwLock<std::time::Instant>>,
-    
+
     /// Number of moves since the last snapshot was written
     pub(crate) moves_since_snapshot: Arc<RwLock<u32>>,
-    
+
     /// Directory to store game snapshots
     pub(crate) snapshot_dir: Arc<RwLock<Option<std::path::PathBuf>>>,
-    
+
     /// P2P networking context
     pub(crate) node_ctx: Option<Arc<NodeContext>>,
-    
+
     /// Active peer connections for this game
     pub(crate) peer_connections: Arc<RwLock<HashMap<PeerId, bool>>>,
-    
+
     /// Background task for handling incoming messages
     pub(crate) _message_handler_task: Option<JoinHandle<()>>,
-    
+
     /// Queue of already processed (PeerId, sequence) pairs to avoid duplicates
     pub(crate) processed_sequences: Arc<Mutex<VecDeque<(PeerId, u64)>>>,
-    
+
     /// Index of the last move sent
     pub(crate) last_sent_index: Arc<RwLock<Option<usize>>>,
-    
+
     /// Timestamp when the last move was sent
     pub(crate) last_sent_time: Arc<RwLock<Option<std::time::Instant>>>,
-    
+
     /// Flag to track if sync has been requested for the current move
     pub(crate) sync_requested: Arc<RwLock<bool>>,
 }
@@ -98,7 +98,11 @@ impl GameChannel {
 
     /// Create a new game channel with an Iroh context for network synchronization
     #[cfg(feature = "iroh")]
-    pub async fn with_iroh(game_id: GameId, initial_state: GameState, iroh_ctx: Arc<IrohCtx>) -> Result<Self> {
+    pub async fn with_iroh(
+        game_id: GameId,
+        initial_state: GameState,
+        iroh_ctx: Arc<IrohCtx>,
+    ) -> Result<Self> {
         core::with_iroh(game_id, initial_state, iroh_ctx).await
     }
 
@@ -150,7 +154,10 @@ impl GameChannel {
 
     /// Broadcast move to peers over direct connections
     #[cfg(feature = "iroh")]
-    pub async fn broadcast_move_to_peers(&self, move_record: &p2pgo_core::MoveRecord) -> Result<()> {
+    pub async fn broadcast_move_to_peers(
+        &self,
+        move_record: &p2pgo_core::MoveRecord,
+    ) -> Result<()> {
         networking::broadcast_move_to_peers(self, move_record).await
     }
 
@@ -178,7 +185,10 @@ impl GameChannel {
 
     /// Test helper method to handle a duplicate move for testing deduplication
     #[cfg(test)]
-    pub async fn handle_duplicate_move_test(&self, move_record: p2pgo_core::MoveRecord) -> Result<()> {
+    pub async fn handle_duplicate_move_test(
+        &self,
+        move_record: p2pgo_core::MoveRecord,
+    ) -> Result<()> {
         state::handle_duplicate_move_test(self, move_record).await
     }
 
@@ -208,64 +218,78 @@ impl GameChannel {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use p2pgo_core::{Move, Coord, GameState};
-    
+    use p2pgo_core::{Coord, GameState, Move};
+
     #[tokio::test]
     async fn test_basic_game_channel() -> Result<()> {
         let game_id = format!("test-basic-{}", uuid::Uuid::new_v4());
         let initial_state = GameState::new(9);
         let channel = GameChannel::new(game_id.clone(), initial_state);
-        
+
         // Test basic functionality
         assert_eq!(channel.get_game_id(), &game_id);
         assert!(channel.get_latest_state().await.is_some());
-        
+
         // Test move sending
-        let mv = Move::Place { x: 4, y: 4, color: p2pgo_core::Color::Black };
+        let mv = Move::Place {
+            x: 4,
+            y: 4,
+            color: p2pgo_core::Color::Black,
+        };
         channel.send_move(mv.clone()).await?;
-        
+
         // Verify move was processed
         let state = channel.get_latest_state().await.unwrap();
         assert_eq!(state.moves.len(), 1);
-        
+
         Ok(())
     }
-    
+
     #[cfg(feature = "iroh")]
     #[tokio::test]
     async fn test_ack_watchdog() -> Result<()> {
         use crate::iroh_endpoint::IrohCtx;
-        
+
         // Create iroh contexts for both players
         let alice_ctx = Arc::new(IrohCtx::new().await?);
         let bob_ctx = Arc::new(IrohCtx::new().await?);
-        
+
         // Create a unique game ID
         let game_id = format!("test-ack-watchdog-{}", uuid::Uuid::new_v4());
         let initial_state = GameState::new(9);
-        
+
         // Create game channels
-        let alice_channel = GameChannel::with_iroh(game_id.clone(), initial_state.clone(), alice_ctx.clone()).await?;
-        let bob_channel = GameChannel::with_iroh(game_id.clone(), initial_state.clone(), bob_ctx.clone()).await?;
-        
+        let alice_channel =
+            GameChannel::with_iroh(game_id.clone(), initial_state.clone(), alice_ctx.clone())
+                .await?;
+        let bob_channel =
+            GameChannel::with_iroh(game_id.clone(), initial_state.clone(), bob_ctx.clone()).await?;
+
         // Wait for initialization
         tokio::time::sleep(Duration::from_millis(100)).await;
-        
+
         // Send a move from Alice but simulate dropped ACK
-        let mv = Move::Place { x: 4, y: 4, color: p2pgo_core::Color::Black };
+        let mv = Move::Place {
+            x: 4,
+            y: 4,
+            color: p2pgo_core::Color::Black,
+        };
         alice_channel.send_move(mv.clone()).await?;
-        
+
         // Wait for the watchdog to trigger (>3 seconds)
         tokio::time::sleep(Duration::from_secs(4)).await;
-        
+
         // Check if sync has been requested
         let sync_requested = {
             let flag = alice_channel.sync_requested.read().await;
             *flag
         };
-        
-        assert!(sync_requested, "Sync should have been requested after ACK timeout");
-        
+
+        assert!(
+            sync_requested,
+            "Sync should have been requested after ACK timeout"
+        );
+
         Ok(())
     }
 }

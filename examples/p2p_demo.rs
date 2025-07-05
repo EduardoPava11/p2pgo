@@ -2,8 +2,8 @@
 // This demonstrates the decentralized peer-to-peer capabilities
 
 use libp2p::{
-    gossipsub, identity, kad, mdns, noise, relay, swarm::NetworkBehaviour, tcp, yamux,
-    PeerId, SwarmBuilder, futures::StreamExt,
+    futures::StreamExt, gossipsub, identity, kad, mdns, noise, relay, swarm::NetworkBehaviour, tcp,
+    yamux, PeerId, SwarmBuilder,
 };
 use std::collections::hash_map::DefaultHasher;
 use std::error::Error;
@@ -76,7 +76,10 @@ async fn main() -> Result<(), Box<dyn Error>> {
             let kad = kad::Behaviour::with_config(keypair.public().to_peer_id(), store, cfg);
 
             // mDNS for local discovery
-            let mdns = mdns::tokio::Behaviour::new(mdns::Config::default(), keypair.public().to_peer_id())?;
+            let mdns = mdns::tokio::Behaviour::new(
+                mdns::Config::default(),
+                keypair.public().to_peer_id(),
+            )?;
 
             Ok(P2PGoBehaviour {
                 relay: relay_behavior,

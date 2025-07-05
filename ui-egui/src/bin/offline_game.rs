@@ -2,7 +2,7 @@
 //!
 //! Run with: cargo run --bin offline_game --features offline
 
-use eframe::{Frame, NativeOptions, App as EframeApp};
+use eframe::{App as EframeApp, Frame, NativeOptions};
 use egui::Context;
 use p2pgo_ui_egui::offline_game::OfflineGoGame;
 
@@ -26,7 +26,7 @@ impl EframeApp for OfflineApp {
 
 fn main() -> Result<(), eframe::Error> {
     env_logger::init();
-    
+
     let options = NativeOptions {
         initial_window_size: Some(egui::Vec2::new(900.0, 900.0)),
         min_window_size: Some(egui::Vec2::new(600.0, 600.0)),
@@ -35,7 +35,7 @@ fn main() -> Result<(), eframe::Error> {
         vsync: true,
         ..Default::default()
     };
-    
+
     eframe::run_native(
         "P2P Go Offline",
         options,

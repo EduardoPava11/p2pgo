@@ -5,11 +5,11 @@
 #[cfg(feature = "iroh")]
 mod tests {
     use anyhow::Result;
-    use p2pgo_network::relay_monitor::{RestartableRelay, RelayHealthStatus};
     use p2pgo_network::port::PortManager;
+    use p2pgo_network::relay_monitor::{RelayHealthStatus, RestartableRelay};
     use std::time::Duration;
     use tokio::sync::oneshot;
-    
+
     #[tokio::test]
     async fn test_embedded_relay_start_stop() -> Result<()> {
         // Skip this test on CI if environment indicates
@@ -17,21 +17,21 @@ mod tests {
             println!("Skipping embedded relay test on CI");
             return Ok(());
         }
-        
+
         // Initialize port manager
         let port_manager = PortManager::new()?;
-        
+
         // Create restartable relay
         let mut relay = RestartableRelay::new(port_manager);
-        
+
         // Define a simple relay function
         let relay_fn = |port: u16, mut shutdown: oneshot::Receiver<()>| async move {
             println!("Starting mock relay on port {}", port);
-            
+
             // Bind to the port to simulate relay operation
             let listener = tokio::net::TcpListener::bind(("127.0.0.1", port)).await?;
             println!("Bound to port {}", port);
-            
+
             // Run until shutdown signal
             tokio::select! {
                 _ = shutdown => {
@@ -43,38 +43,38 @@ mod tests {
                     }
                 }
             }
-            
+
             Ok(())
         };
-        
+
         // Start the relay
         let port = relay.start(relay_fn).await?;
         println!("Relay started on port {}", port);
-        
+
         // Get the state
         let state = relay.state();
-        
+
         // Allow some time for startup
         tokio::time::sleep(Duration::from_millis(500)).await;
-        
+
         {
             let state = state.read().await;
             assert_eq!(state.listening_port, Some(port));
         }
-        
+
         // Stop the relay
         relay.stop().await?;
         println!("Relay stopped");
-        
+
         // Wait a bit to ensure shutdown
         tokio::time::sleep(Duration::from_millis(500)).await;
-        
+
         // Port should be available again after stopping
         assert!(p2pgo_network::port::is_port_available(port));
-        
+
         Ok(())
     }
-    
+
     #[tokio::test]
     async fn test_relay_restart() -> Result<()> {
         // Skip this test on CI if environment indicates
@@ -82,21 +82,21 @@ mod tests {
             println!("Skipping embedded relay restart test on CI");
             return Ok(());
         }
-        
+
         // Initialize port manager
         let port_manager = PortManager::new()?;
-        
+
         // Create restartable relay
         let mut relay = RestartableRelay::new(port_manager);
-        
+
         // Define a test relay that can be restarted
         let relay_fn = |port: u16, mut shutdown: oneshot::Receiver<()>| async move {
             println!("Starting mock relay on port {}", port);
-            
+
             // Bind to the port to simulate relay operation
             let listener = tokio::net::TcpListener::bind(("127.0.0.1", port)).await?;
             println!("Bound to port {}", port);
-            
+
             tokio::select! {
                 _ = shutdown => {
                     println!("Received shutdown signal");
@@ -105,40 +105,40 @@ mod tests {
                     println!("Mock relay timeout (simulated normal operation)");
                 }
             }
-            
+
             Ok(())
         };
-        
+
         // Start the relay
         let port = relay.start(relay_fn).await?;
         println!("Relay started on port {}", port);
-        
+
         // Run for a short time
         tokio::time::sleep(Duration::from_secs(1)).await;
-        
+
         // Now restart the relay
         println!("Restarting relay...");
         let new_port = relay.restart(relay_fn).await?;
         println!("Relay restarted on port {}", new_port);
-        
+
         // The port should be the same after restart
         assert_eq!(port, new_port);
-        
+
         // Allow some time for the restart
         tokio::time::sleep(Duration::from_millis(500)).await;
-        
+
         // Get the state after restart
         let state = relay.state();
-        
+
         {
             let state = state.read().await;
             assert_eq!(state.listening_port, Some(port));
             assert_eq!(state.restart_attempts, 1);
         }
-        
+
         // Stop the relay
         relay.stop().await?;
-        
+
         Ok(())
     }
 }

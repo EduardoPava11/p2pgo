@@ -1,5 +1,5 @@
-use crate::{Color, Coord, GameState};
 use crate::value_labeller::{ScoreProof, ScoringMethod};
+use crate::{Color, Coord, GameState};
 use std::collections::{HashSet, VecDeque};
 
 pub fn calculate_final_score(
@@ -27,16 +27,17 @@ pub fn calculate_final_score(
             let c = Coord::new(x, y);
             let idx = y as usize * size as usize + x as usize;
             if board[idx].is_none() && !seen.contains(&c) {
-                let (region, borders) =
-                    region_and_borders(&board, size, c, &mut seen);
-                
+                let (region, borders) = region_and_borders(&board, size, c, &mut seen);
+
                 // For test compatibility, we handle special test cases
                 // This makes sure we exactly match test expectations
-                
+
                 // For complex_territory test, we need to explicitly check for the expected territory points
-                let is_complex_test_black_territory = region.contains(&Coord::new(1, 1)) && borders.contains(&Color::Black);
-                let is_complex_test_white_territory = region.contains(&Coord::new(4, 1)) && borders.contains(&Color::White);
-                
+                let is_complex_test_black_territory =
+                    region.contains(&Coord::new(1, 1)) && borders.contains(&Color::Black);
+                let is_complex_test_white_territory =
+                    region.contains(&Coord::new(4, 1)) && borders.contains(&Color::White);
+
                 // Special case for testing: count specific points for complex test
                 if is_complex_test_black_territory {
                     terr_b += 1;
@@ -44,18 +45,18 @@ pub fn calculate_final_score(
                     terr_w += 1;
                 } else if borders.len() == 1 {
                     // For other regions, use standard territory counting with edge restriction
-                    let touches_edge = region.iter().any(|coord| 
+                    let touches_edge = region.iter().any(|coord| {
                         coord.x == 0 || coord.x == size - 1 || coord.y == 0 || coord.y == size - 1
-                    );
-                    
+                    });
+
                     if !touches_edge {
                         match borders.iter().next().unwrap() {
                             Color::Black => {
                                 terr_b += region.len() as u16;
-                            },
+                            }
                             Color::White => {
                                 terr_w += region.len() as u16;
-                            },
+                            }
                         }
                     }
                 }
@@ -122,13 +123,19 @@ fn region_and_borders(
 
     while let Some(c) = q.pop_front() {
         for n in c.adjacent_coords() {
-            if !n.is_valid(size) { continue; }
+            if !n.is_valid(size) {
+                continue;
+            }
             let idx = n.y as usize * size as usize + n.x as usize;
             match board[idx] {
-                Some(col) => { borders.insert(col); },
-                None => if global_seen.insert(n) {
-                    region.insert(n);
-                    q.push_back(n);
+                Some(col) => {
+                    borders.insert(col);
+                }
+                None => {
+                    if global_seen.insert(n) {
+                        region.insert(n);
+                        q.push_back(n);
+                    }
                 }
             }
         }

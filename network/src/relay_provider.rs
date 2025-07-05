@@ -1,12 +1,12 @@
 //! Unified relay provider interface
-//! 
+//!
 //! This module provides a common trait for different relay implementations,
 //! allowing the game to select the appropriate relay mode based on player
 //! preferences and game configuration.
 
+use anyhow::Result;
 use async_trait::async_trait;
 use libp2p::{Multiaddr, PeerId};
-use anyhow::Result;
 use serde::{Deserialize, Serialize};
 
 /// Player preferences for relay usage
@@ -62,13 +62,13 @@ pub enum RelayState {
 pub trait RelayProvider: Send + Sync {
     /// Get the name of this relay provider
     fn name(&self) -> &str;
-    
+
     /// Check if this provider is suitable for the given player count
     fn supports_player_count(&self, count: usize) -> bool;
-    
+
     /// Initialize the relay provider
     async fn initialize(&mut self) -> Result<()>;
-    
+
     /// Connect to a peer, potentially through relay
     async fn connect_to_peer(
         &mut self,
@@ -76,26 +76,22 @@ pub trait RelayProvider: Send + Sync {
         known_addrs: Vec<Multiaddr>,
         preferences: &RelayPreferences,
     ) -> Result<RelayState>;
-    
+
     /// Get current connection state to a peer
     fn get_connection_state(&self, peer_id: &PeerId) -> RelayState;
-    
+
     /// Send a message to a peer
-    async fn send_message(
-        &mut self,
-        peer_id: &PeerId,
-        message: Vec<u8>,
-    ) -> Result<()>;
-    
+    async fn send_message(&mut self, peer_id: &PeerId, message: Vec<u8>) -> Result<()>;
+
     /// Receive messages (non-blocking)
     async fn receive_messages(&mut self) -> Result<Vec<(PeerId, Vec<u8>)>>;
-    
+
     /// Disconnect from a peer
     async fn disconnect_from_peer(&mut self, peer_id: &PeerId) -> Result<()>;
-    
+
     /// Get relay statistics
     fn get_stats(&self) -> RelayStats;
-    
+
     /// Shutdown the relay provider
     async fn shutdown(&mut self) -> Result<()>;
 }
@@ -147,7 +143,7 @@ impl RelayProviderFactory {
             }
         }
     }
-    
+
     /// Create provider based on guild preferences
     pub fn create_for_guild(guild: PlayerGuild, player_count: usize) -> Box<dyn RelayProvider> {
         let preferences = match guild {
@@ -174,7 +170,7 @@ impl RelayProviderFactory {
                 RelayPreferences::default()
             }
         };
-        
+
         let all_preferences = vec![preferences; player_count];
         Self::create_provider(player_count, all_preferences)
     }
@@ -198,16 +194,16 @@ impl RelayProvider for SimpleRelayProvider {
     fn name(&self) -> &str {
         "Simple Relay"
     }
-    
+
     fn supports_player_count(&self, count: usize) -> bool {
         count == 2
     }
-    
+
     async fn initialize(&mut self) -> Result<()> {
         // TODO: Initialize simple relay
         Ok(())
     }
-    
+
     async fn connect_to_peer(
         &mut self,
         _peer_id: PeerId,
@@ -217,27 +213,27 @@ impl RelayProvider for SimpleRelayProvider {
         // TODO: Implement connection logic
         Ok(RelayState::Connecting)
     }
-    
+
     fn get_connection_state(&self, _peer_id: &PeerId) -> RelayState {
         RelayState::Disconnected
     }
-    
+
     async fn send_message(&mut self, _peer_id: &PeerId, _message: Vec<u8>) -> Result<()> {
         Ok(())
     }
-    
+
     async fn receive_messages(&mut self) -> Result<Vec<(PeerId, Vec<u8>)>> {
         Ok(vec![])
     }
-    
+
     async fn disconnect_from_peer(&mut self, _peer_id: &PeerId) -> Result<()> {
         Ok(())
     }
-    
+
     fn get_stats(&self) -> RelayStats {
         RelayStats::default()
     }
-    
+
     async fn shutdown(&mut self) -> Result<()> {
         Ok(())
     }
@@ -259,16 +255,16 @@ impl RelayProvider for CircuitRelayV2Provider {
     fn name(&self) -> &str {
         "Circuit Relay V2"
     }
-    
+
     fn supports_player_count(&self, count: usize) -> bool {
         count == 3
     }
-    
+
     async fn initialize(&mut self) -> Result<()> {
         // TODO: Initialize circuit relay
         Ok(())
     }
-    
+
     async fn connect_to_peer(
         &mut self,
         _peer_id: PeerId,
@@ -278,27 +274,27 @@ impl RelayProvider for CircuitRelayV2Provider {
         // TODO: Implement triangular relay logic
         Ok(RelayState::Connecting)
     }
-    
+
     fn get_connection_state(&self, _peer_id: &PeerId) -> RelayState {
         RelayState::Disconnected
     }
-    
+
     async fn send_message(&mut self, _peer_id: &PeerId, _message: Vec<u8>) -> Result<()> {
         Ok(())
     }
-    
+
     async fn receive_messages(&mut self) -> Result<Vec<(PeerId, Vec<u8>)>> {
         Ok(vec![])
     }
-    
+
     async fn disconnect_from_peer(&mut self, _peer_id: &PeerId) -> Result<()> {
         Ok(())
     }
-    
+
     fn get_stats(&self) -> RelayStats {
         RelayStats::default()
     }
-    
+
     async fn shutdown(&mut self) -> Result<()> {
         Ok(())
     }
@@ -320,16 +316,16 @@ impl RelayProvider for MeshRelayProvider {
     fn name(&self) -> &str {
         "Mesh Relay"
     }
-    
+
     fn supports_player_count(&self, count: usize) -> bool {
         count > 3
     }
-    
+
     async fn initialize(&mut self) -> Result<()> {
         // TODO: Initialize mesh relay
         Ok(())
     }
-    
+
     async fn connect_to_peer(
         &mut self,
         _peer_id: PeerId,
@@ -339,27 +335,27 @@ impl RelayProvider for MeshRelayProvider {
         // TODO: Implement mesh relay logic
         Ok(RelayState::Connecting)
     }
-    
+
     fn get_connection_state(&self, _peer_id: &PeerId) -> RelayState {
         RelayState::Disconnected
     }
-    
+
     async fn send_message(&mut self, _peer_id: &PeerId, _message: Vec<u8>) -> Result<()> {
         Ok(())
     }
-    
+
     async fn receive_messages(&mut self) -> Result<Vec<(PeerId, Vec<u8>)>> {
         Ok(vec![])
     }
-    
+
     async fn disconnect_from_peer(&mut self, _peer_id: &PeerId) -> Result<()> {
         Ok(())
     }
-    
+
     fn get_stats(&self) -> RelayStats {
         RelayStats::default()
     }
-    
+
     async fn shutdown(&mut self) -> Result<()> {
         Ok(())
     }
@@ -368,35 +364,35 @@ impl RelayProvider for MeshRelayProvider {
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     #[test]
     fn test_relay_provider_selection() {
         // Test 2-player game
         let provider = RelayProviderFactory::create_provider(2, vec![]);
         assert_eq!(provider.name(), "Simple Relay");
         assert!(provider.supports_player_count(2));
-        
+
         // Test 3-player game
         let provider = RelayProviderFactory::create_provider(3, vec![]);
         assert_eq!(provider.name(), "Circuit Relay V2");
         assert!(provider.supports_player_count(3));
-        
+
         // Test 4+ player game
         let provider = RelayProviderFactory::create_provider(4, vec![]);
         assert_eq!(provider.name(), "Mesh Relay");
         assert!(provider.supports_player_count(4));
     }
-    
+
     #[test]
     fn test_guild_preferences() {
         // Activity guild prefers direct connections
         let provider = RelayProviderFactory::create_for_guild(PlayerGuild::Activity, 2);
         assert_eq!(provider.name(), "Simple Relay");
-        
+
         // Reactivity guild accepts relay usage
         let provider = RelayProviderFactory::create_for_guild(PlayerGuild::Reactivity, 2);
         assert_eq!(provider.name(), "Simple Relay");
-        
+
         // Avoidance guild uses defaults
         let provider = RelayProviderFactory::create_for_guild(PlayerGuild::Avoidance, 2);
         assert_eq!(provider.name(), "Simple Relay");

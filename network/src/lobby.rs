@@ -4,14 +4,14 @@
 //!   * create_game / start_game / get_game_channel
 //!   * broadcast LobbyEvent via tokio::sync::broadcast
 
-use std::collections::HashMap;
-use std::sync::Arc;
-use tokio::sync::{RwLock, broadcast};
+use crate::game_channel::GameChannel;
+use crate::GameId;
 use anyhow::Result;
 use p2pgo_core::{GameState, Move};
-use crate::GameId;
-use crate::game_channel::GameChannel;
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
+use std::sync::Arc;
+use tokio::sync::{broadcast, RwLock};
 
 /// Bot information for lobby advertisements
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -86,11 +86,11 @@ impl Lobby {
     /// Create a new lobby service
     pub fn new() -> Self {
         let _span = tracing::info_span!("network.lobby", "Lobby::new").entered();
-        
+
         // Create a broadcast channel for events with buffer size 100
         // We must ensure there's always at least one active receiver for tests to pass
         let (events_tx, events_rx) = broadcast::channel(100);
-        
+
         Self {
             games: Arc::new(RwLock::new(HashMap::new())),
             channels: Arc::new(RwLock::new(HashMap::new())),
@@ -98,23 +98,28 @@ impl Lobby {
             _events_rx: events_rx,
         }
     }
-    
+
     /// Get a receiver for lobby events
     pub fn subscribe(&self) -> broadcast::Receiver<LobbyEvent> {
         self.events_tx.subscribe()
     }
-    
+
     /// Create a new game in the lobby
-    pub async fn create_game(&self, name: Option<String>, board_size: u8, needs_password: bool) -> Result<GameId> {
+    pub async fn create_game(
+        &self,
+        name: Option<String>,
+        board_size: u8,
+        needs_password: bool,
+    ) -> Result<GameId> {
         let _span = tracing::info_span!("network.lobby", "Lobby::create_game").entered();
-        
+
         // Generate a unique game ID
         let game_id = format!("game-{}", uuid::Uuid::new_v4());
-        
+
         // Create initial game state with default board size 9 if None
         let board_size = if board_size == 0 { 9 } else { board_size };
         let initial_state = GameState::new(board_size);
-        
+
         // Create game info
         let game_info = GameInfo {
             id: game_id.clone(),
@@ -123,19 +128,19 @@ impl Lobby {
             started: false,
             needs_password,
         };
-        
+
         // Create a game channel
         let channel = Arc::new(GameChannel::new(game_id.clone(), initial_state));
-        
+
         // Add to local games map and channels
         {
             let mut games = self.games.write().await;
             games.insert(game_id.clone(), game_info.clone());
-            
+
             let mut channels = self.channels.write().await;
             channels.insert(game_id.clone(), channel);
         }
-        
+
         // Broadcast the game created event
         let event = LobbyEvent::GameCreated(game_info);
         tracing::debug!(
@@ -145,16 +150,17 @@ impl Lobby {
             needs_password = needs_password,
             "Broadcasting lobby event"
         );
-        self.events_tx.send(event)
+        self.events_tx
+            .send(event)
             .map_err(|e| anyhow::anyhow!("Failed to broadcast game created event: {}", e))?;
-        
+
         Ok(game_id)
     }
-    
+
     /// Start a game
     pub async fn start_game(&self, game_id: &GameId) -> Result<()> {
         let _span = tracing::info_span!("network.lobby", "Lobby::start_game").entered();
-        
+
         // Update the game info
         {
             let mut games = self.games.write().await;
@@ -164,7 +170,7 @@ impl Lobby {
                 return Err(anyhow::anyhow!("Game not found: {}", game_id));
             }
         }
-        
+
         // Broadcast the game started event
         let event = LobbyEvent::GameStarted(game_id.clone());
         tracing::debug!(
@@ -172,45 +178,47 @@ impl Lobby {
             event_type = "GameStarted",
             "Broadcasting lobby event"
         );
-        self.events_tx.send(event)
+        self.events_tx
+            .send(event)
             .map_err(|e| anyhow::anyhow!("Failed to broadcast game started event: {}", e))?;
-        
+
         Ok(())
     }
-    
+
     /// Get a game channel for a specific game
     pub async fn get_game_channel(&self, game_id: &GameId) -> Result<Arc<GameChannel>> {
         let channels = self.channels.read().await;
-        channels.get(game_id)
+        channels
+            .get(game_id)
             .cloned()
             .ok_or_else(|| anyhow::anyhow!("Game not found: {}", game_id))
     }
-    
+
     /// Post a move to a game
     pub async fn post_move(&self, game_id: &GameId, mv: Move) -> Result<()> {
         let channel = self.get_game_channel(game_id).await?;
         channel.send_move(mv).await
     }
-    
+
     /// List all available games
     pub async fn list_games(&self) -> Vec<GameInfo> {
         let games = self.games.read().await;
         games.values().cloned().collect()
     }
-    
+
     /// Remove a game from the lobby
     pub async fn remove_game(&self, game_id: &GameId) -> Result<()> {
         let _span = tracing::info_span!("network.lobby", "Lobby::remove_game").entered();
-        
+
         // Remove from local maps
         {
             let mut games = self.games.write().await;
             games.remove(game_id);
-            
+
             let mut channels = self.channels.write().await;
             channels.remove(game_id);
         }
-        
+
         // Broadcast the game ended event
         let event = LobbyEvent::GameEnded(game_id.clone());
         tracing::debug!(
@@ -218,22 +226,28 @@ impl Lobby {
             event_type = "GameEnded",
             "Broadcasting lobby event"
         );
-        self.events_tx.send(event)
+        self.events_tx
+            .send(event)
             .map_err(|e| anyhow::anyhow!("Failed to broadcast game ended event: {}", e))?;
-        
+
         Ok(())
     }
-    
+
     /// Publish game advertisement via gossip
-    pub async fn publish_game_advert(&self, game_id: &GameId, host_node_id: &str, bot_info: Option<BotInfo>) -> Result<()> {
+    pub async fn publish_game_advert(
+        &self,
+        game_id: &GameId,
+        host_node_id: &str,
+        bot_info: Option<BotInfo>,
+    ) -> Result<()> {
         let _span = tracing::info_span!("network.lobby", "Lobby::publish_game_advert").entered();
-        
+
         // Get game info
         let game_info = {
             let games = self.games.read().await;
             games.get(game_id).cloned()
         };
-        
+
         if let Some(info) = game_info {
             let has_bot = bot_info.is_some();
             let advert = GameAdvert {
@@ -242,11 +256,11 @@ impl Lobby {
                 host: host_node_id.to_string(),
                 bot: bot_info,
             };
-            
+
             // Serialize using bincode for gossip
             let data = bincode::serialize(&advert)
                 .map_err(|e| anyhow::anyhow!("Failed to serialize game advert: {}", e))?;
-            
+
             tracing::debug!(
                 game_id = %game_id,
                 host = %host_node_id,
@@ -255,22 +269,22 @@ impl Lobby {
                 data_len = data.len(),
                 "Publishing game advertisement"
             );
-            
+
             // TODO: Actually publish to iroh-gossip when available
             // For now just log the advertisement
-            
+
             Ok(())
         } else {
             Err(anyhow::anyhow!("Game not found: {}", game_id))
         }
     }
-    
+
     /// Create bot info for local AI player
     pub fn create_bot_info(layers: u8, d_model: u16, quant: u8, model_hash: &[u8]) -> BotInfo {
         let mut sha8 = [0u8; 8];
         let len = std::cmp::min(model_hash.len(), 8);
         sha8[..len].copy_from_slice(&model_hash[..len]);
-        
+
         BotInfo {
             layers,
             d_model,
@@ -283,20 +297,21 @@ impl Lobby {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use p2pgo_core::{Coord, Color, GameEvent};
-    
+    use p2pgo_core::{Color, Coord, GameEvent};
+
     #[tokio::test]
     async fn test_lobby_create_game() {
         let lobby = Lobby::new();
-        
+
         // Subscribe to events first
         let _rx = lobby.subscribe();
-        
+
         // Create a game
-        let game_id = lobby.create_game(Some("Test Game".to_string()), 9, false)
+        let game_id = lobby
+            .create_game(Some("Test Game".to_string()), 9, false)
             .await
             .unwrap();
-        
+
         // Check the game is in the list
         let games = lobby.list_games().await;
         assert_eq!(games.len(), 1);
@@ -305,93 +320,99 @@ mod tests {
         assert_eq!(games[0].board_size, 9);
         assert!(!games[0].started);
     }
-    
+
     #[tokio::test]
     async fn test_lobby_start_game() {
         let lobby = Lobby::new();
-        
+
         // Subscribe to events first
         let mut rx = lobby.subscribe();
-        
+
         // Create a game
-        let game_id = lobby.create_game(Some("Test Game".to_string()), 9, false)
+        let game_id = lobby
+            .create_game(Some("Test Game".to_string()), 9, false)
             .await
             .unwrap();
-        
+
         // Check game created event
         let event = rx.recv().await.unwrap();
         match event {
             LobbyEvent::GameCreated(info) => {
                 assert_eq!(info.id, game_id);
-            },
+            }
             _ => panic!("Expected GameCreated event"),
         }
-            
+
         // Start the game
         lobby.start_game(&game_id).await.unwrap();
-        
+
         // Check game started event
         let event = rx.recv().await.unwrap();
         match event {
             LobbyEvent::GameStarted(id) => {
                 assert_eq!(id, game_id);
-            },
+            }
             _ => panic!("Expected GameStarted event"),
         }
-        
+
         // Check the game is marked as started
         let games = lobby.list_games().await;
         assert!(games[0].started);
     }
-    
+
     #[tokio::test]
     async fn test_lobby_post_move() {
         let lobby = Lobby::new();
-        
+
         // Subscribe to lobby events first
         let mut lobby_rx = lobby.subscribe();
-        
+
         // Create a game
-        let game_id = lobby.create_game(None, 9, false)
-            .await
-            .unwrap();
-            
+        let game_id = lobby.create_game(None, 9, false).await.unwrap();
+
         // Check for game created event
         let event = lobby_rx.recv().await.unwrap();
         match event {
             LobbyEvent::GameCreated(info) => {
                 assert_eq!(info.id, game_id);
-            },
+            }
             _ => panic!("Expected GameCreated event"),
         }
-        
+
         // Start the game
         lobby.start_game(&game_id).await.unwrap();
-        
+
         // Check for game started event
         let event = lobby_rx.recv().await.unwrap();
         match event {
             LobbyEvent::GameStarted(id) => {
                 assert_eq!(id, game_id);
-            },
+            }
             _ => panic!("Expected GameStarted event"),
         }
-        
+
         // Get a channel to listen for game events
         let channel = lobby.get_game_channel(&game_id).await.unwrap();
         let mut game_rx = channel.subscribe();
-        
+
         // Post a move
-        let mv = Move::Place { x: 4, y: 4, color: Color::Black };
+        let mv = Move::Place {
+            x: 4,
+            y: 4,
+            color: Color::Black,
+        };
         lobby.post_move(&game_id, mv.clone()).await.unwrap();
-        
+
         // Check that the move event was received
         let event = game_rx.recv().await.unwrap();
         match event {
-            GameEvent::MoveMade { mv: received_mv, by } => {
+            GameEvent::MoveMade {
+                mv: received_mv,
+                by,
+            } => {
                 assert_eq!(received_mv, mv);
                 assert_eq!(by, Color::Black); // First move is by Black
-            },
+            }
             _ => panic!("Expected MoveMade event"),
         }
     }

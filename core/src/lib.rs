@@ -12,26 +12,26 @@
 //! - SGF (Smart Game Format) parsing and generation
 //! - CBOR serialization helpers for game state
 
+pub mod archiver;
 pub mod board;
+pub mod burn_engine;
+pub mod cbor;
+pub mod color_constants;
+pub mod engine;
 pub mod rules;
+pub mod scoring;
 pub mod sgf;
 pub mod sgf_parser;
-pub mod cbor;
-pub mod engine;
-pub mod value_labeller;
-pub mod scoring;
-pub mod archiver;
-pub mod color_constants;
-pub mod burn_engine;
 pub mod training_pipeline;
+pub mod value_labeller;
 // pub mod burn_trainer; // TODO: Fix Burn compilation issues
 pub mod ko_detector;
 pub mod ko_generator;
 pub mod logging;
 
-use serde::{Serialize, Deserialize};
-use thiserror::Error;
 use crate::board::Board;
+use serde::{Deserialize, Serialize};
+use thiserror::Error;
 
 /// Player color in a Go game (Black or White)
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -66,32 +66,32 @@ impl Coord {
     pub fn new(x: u8, y: u8) -> Self {
         Self { x, y }
     }
-    
+
     /// Check if coordinate is valid for a board of given size
     pub fn is_valid(&self, board_size: u8) -> bool {
         self.x < board_size && self.y < board_size
     }
-    
+
     /// Get adjacent (neighboring) coordinates in the four cardinal directions
     pub fn adjacent_coords(&self) -> Vec<Coord> {
         let mut neighbors = Vec::with_capacity(4);
-        
+
         // Check north
         if self.y > 0 {
             neighbors.push(Coord::new(self.x, self.y - 1));
         }
-        
+
         // Check east
         neighbors.push(Coord::new(self.x + 1, self.y));
-        
+
         // Check south
         neighbors.push(Coord::new(self.x, self.y + 1));
-        
+
         // Check west
         if self.x > 0 {
             neighbors.push(Coord::new(self.x - 1, self.y));
         }
-        
+
         neighbors
     }
 }
@@ -158,51 +158,52 @@ impl GameState {
             result: None,
         }
     }
-    
+
     /// Apply a move to the game state
     pub fn apply_move(&mut self, mv: Move) -> Result<Vec<GameEvent>, GameError> {
         let mut events = Vec::new();
-        
+
         match mv {
             Move::Place { x, y, color } => {
                 if x >= self.board_size || y >= self.board_size {
                     return Err(GameError::InvalidCoordinate);
                 }
-                
+
                 let coord = Coord::new(x, y);
                 let idx = (y as usize) * (self.board_size as usize) + (x as usize);
                 if self.board[idx].is_some() {
                     return Err(GameError::OccupiedPosition);
                 }
-                
+
                 // Create board for rules checking
                 let mut board = self.to_board();
                 let prev_board = board.clone();
-                
+
                 // Check if move is valid (suicide, ko)
                 {
                     let validator = crate::rules::RuleValidator::new(&board, &prev_board);
                     validator.check_move(coord, color)?;
                 }
-                
+
                 // Place the stone
                 self.board[idx] = Some(color);
                 board.place(coord, color);
-                
+
                 // Find and remove captured stones
                 let validator = crate::rules::RuleValidator::new(&board, &prev_board);
                 let captured_positions = validator.find_captures(coord);
                 let mut total_captured = 0;
-                
+
                 if !captured_positions.is_empty() {
                     total_captured = captured_positions.len() as u16;
-                    
+
                     // Remove captured stones
                     for pos in &captured_positions {
-                        let cap_idx = (pos.y as usize) * (self.board_size as usize) + (pos.x as usize);
+                        let cap_idx =
+                            (pos.y as usize) * (self.board_size as usize) + (pos.x as usize);
                         self.board[cap_idx] = None;
                     }
-                    
+
                     // Emit capture event
                     let captured_color = color.opposite();
                     events.push(GameEvent::StonesCaptured {
@@ -211,35 +212,38 @@ impl GameState {
                         player: captured_color,
                     });
                 }
-                
+
                 // Update capture count
                 match color {
                     Color::Black => self.captures.0 += total_captured,
                     Color::White => self.captures.1 += total_captured,
                 }
-                
+
                 self.pass_count = 0;
-            },
+            }
             Move::Pass => {
                 self.pass_count += 1;
-            },
+            }
             Move::Resign => {
                 // Nothing to do here, game ends
-            },
+            }
         }
-        
+
         // Record the move
         self.moves.push(mv.clone());
-        
+
         // Emit move event
-        events.insert(0, GameEvent::MoveMade {
-            mv,
-            by: self.current_player,
-        });
-        
+        events.insert(
+            0,
+            GameEvent::MoveMade {
+                mv,
+                by: self.current_player,
+            },
+        );
+
         // Switch player
         self.current_player = self.current_player.opposite();
-        
+
         // Check if game ended
         if self.is_game_over() {
             let (black_score, white_score) = self.calculate_score();
@@ -248,31 +252,32 @@ impl GameState {
                 white_score,
             });
         }
-        
+
         Ok(events)
     }
-    
+
     /// Check if the game is over
     pub fn is_game_over(&self) -> bool {
         // Game ends after two consecutive passes or resignation
         if self.pass_count >= 2 {
             return true;
         }
-        
+
         if let Some(Move::Resign) = self.moves.last() {
             return true;
         }
-        
+
         false
     }
-    
+
     /// Count stones of specified color on the board
     pub fn count_stones_for(&self, color: Color) -> usize {
-        self.board.iter()
+        self.board
+            .iter()
             .filter(|stone| **stone == Some(color))
             .count()
     }
-    
+
     /// Convert to Board for rules checking
     fn to_board(&self) -> Board {
         let mut board = Board::new(self.board_size);
@@ -286,7 +291,7 @@ impl GameState {
         }
         board
     }
-    
+
     /// Calculate final score
     pub fn calculate_score(&self) -> (f32, f32) {
         // Basic scoring: captures + stones on board
@@ -294,10 +299,10 @@ impl GameState {
         let white_stones = self.count_stones_for(Color::White) as f32;
         let black_captures = self.captures.1 as f32; // White stones captured
         let white_captures = self.captures.0 as f32; // Black stones captured
-        
+
         let black_score = black_stones + black_captures;
         let white_score = white_stones + white_captures + 6.5; // Komi
-        
+
         (black_score, white_score)
     }
 }
@@ -350,19 +355,19 @@ pub enum GameError {
     /// The coordinate is outside the board
     #[error("Invalid coordinate")]
     InvalidCoordinate,
-    
+
     /// The position is already occupied
     #[error("Position already occupied")]
     OccupiedPosition,
-    
+
     /// The move violates the ko rule
     #[error("Move violates ko rule")]
     KoViolation,
-    
+
     /// The move would result in self-capture (suicide)
     #[error("Move would result in self-capture")]
     SelfCapture,
-    
+
     /// Other game rules violation
     #[error("Invalid move: {0}")]
     InvalidMove(String),
@@ -388,9 +393,7 @@ impl BoardState {
 }
 
 // Re-export CBOR types for convenience
-pub use cbor::{Tag, MoveRecord};
+pub use cbor::{MoveRecord, Tag};
 
 // Re-export SGF parser for convenience
 pub use sgf_parser::SGFParser;
-
-

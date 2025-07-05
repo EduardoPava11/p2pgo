@@ -1,9 +1,9 @@
 //! Unified Design System for P2P Go
-//! 
+//!
 //! All UI components should use this design system to maintain consistency
 //! The design is centered around the 9x9 Go board aesthetic
 
-use egui::{Color32, FontId, FontFamily, Rounding, Stroke, Vec2, Button, Response, Ui};
+use egui::{Button, Color32, FontFamily, FontId, Response, Rounding, Stroke, Ui, Vec2};
 
 /// Core colors - Clean black/white/red design
 pub struct GoColors {
@@ -23,7 +23,7 @@ pub struct GoColors {
     pub board_bg: Color32,
     /// Black stone color
     pub black_stone: Color32,
-    /// White stone color  
+    /// White stone color
     pub white_stone: Color32,
     /// Grid line color
     pub grid_line: Color32,
@@ -46,24 +46,24 @@ impl Default for GoColors {
             black: Color32::BLACK,
             white: Color32::WHITE,
             red: Color32::from_rgb(220, 38, 38), // Bold red
-            
+
             // Grays
             gray_light: Color32::from_gray(245),
             gray_medium: Color32::from_gray(200),
             gray_dark: Color32::from_gray(100),
-            
+
             // Board specific
             board_bg: Color32::from_gray(240),
             black_stone: Color32::BLACK,
             white_stone: Color32::WHITE,
             grid_line: Color32::BLACK,
-            
+
             // UI colors
             background: Color32::WHITE,
             text_primary: Color32::BLACK,
             text_secondary: Color32::from_gray(100),
             success: Color32::from_rgb(34, 197, 94), // Green
-            error: Color32::from_rgb(220, 38, 38), // Red
+            error: Color32::from_rgb(220, 38, 38),   // Red
         }
     }
 }
@@ -99,12 +99,12 @@ impl Default for GoTypography {
 
 /// Spacing system based on board grid
 pub struct GoSpacing {
-    pub grid_unit: f32,  // Base unit (30px like board cells)
-    pub xs: f32,         // 0.25 * grid
-    pub sm: f32,         // 0.5 * grid
-    pub md: f32,         // 1.0 * grid
-    pub lg: f32,         // 1.5 * grid
-    pub xl: f32,         // 2.0 * grid
+    pub grid_unit: f32, // Base unit (30px like board cells)
+    pub xs: f32,        // 0.25 * grid
+    pub sm: f32,        // 0.5 * grid
+    pub md: f32,        // 1.0 * grid
+    pub lg: f32,        // 1.5 * grid
+    pub xl: f32,        // 2.0 * grid
 }
 
 impl Default for GoSpacing {
@@ -149,7 +149,7 @@ impl GoDesignSystem {
         };
         FontId::new(size, FontFamily::Proportional)
     }
-    
+
     /// Style a button with clean black/white design
     pub fn style_button(&self, ui: &mut Ui, text: &str) -> Response {
         let button = Button::new(text)
@@ -157,20 +157,17 @@ impl GoDesignSystem {
             .stroke(Stroke::new(2.0, self.colors.black))
             .rounding(Rounding::same(0.0)) // Sharp corners for modern look
             .min_size(Vec2::new(100.0, 40.0));
-            
+
         let response = ui.add(button);
-        
+
         if response.hovered() {
-            ui.painter().rect_filled(
-                response.rect,
-                Rounding::same(0.0),
-                self.colors.gray_light,
-            );
+            ui.painter()
+                .rect_filled(response.rect, Rounding::same(0.0), self.colors.gray_light);
         }
-        
+
         response
     }
-    
+
     /// Style a primary action button (bold red)
     pub fn style_primary_button(&self, ui: &mut Ui, text: &str) -> Response {
         let button = Button::new(text)
@@ -178,9 +175,9 @@ impl GoDesignSystem {
             .stroke(Stroke::new(0.0, self.colors.red))
             .rounding(Rounding::same(0.0))
             .min_size(Vec2::new(140.0, 48.0));
-            
+
         let response = ui.add(button);
-        
+
         // Make text white on red button
         let galley = response.ctx.fonts(|f| {
             f.layout_no_wrap(
@@ -189,18 +186,16 @@ impl GoDesignSystem {
                 self.colors.white,
             )
         });
-        ui.painter().galley(
-            response.rect.center() - galley.size() / 2.0,
-            galley,
-        );
-        
+        ui.painter()
+            .galley(response.rect.center() - galley.size() / 2.0, galley);
+
         response
     }
-    
+
     /// Apply the design system to egui context
     pub fn apply_to_context(&self, ctx: &egui::Context) {
         let mut style = (*ctx.style()).clone();
-        
+
         // Apply colors
         style.visuals.window_fill = self.colors.background;
         style.visuals.panel_fill = self.colors.background;
@@ -208,20 +203,20 @@ impl GoDesignSystem {
         style.visuals.widgets.inactive.bg_fill = self.colors.white;
         style.visuals.hyperlink_color = self.colors.red;
         style.visuals.selection.bg_fill = self.colors.red.linear_multiply(0.2);
-        
+
         // Make everything sharp and clean
         style.visuals.window_rounding = Rounding::ZERO;
         style.visuals.widgets.inactive.rounding = Rounding::ZERO;
         style.visuals.menu_rounding = Rounding::ZERO;
-        
+
         // Bold strokes
         style.visuals.window_stroke = Stroke::new(2.0, self.colors.black);
-        
+
         // Apply spacing
         style.spacing.item_spacing = Vec2::new(self.spacing.sm, self.spacing.sm);
         style.spacing.button_padding = Vec2::new(self.spacing.md, self.spacing.sm);
         style.spacing.indent = self.spacing.md;
-        
+
         ctx.set_style(style);
     }
 }
@@ -243,7 +238,7 @@ pub fn get_design_system() -> &'static GoDesignSystem {
 /// Clean panel with black border
 pub fn board_panel(ui: &mut Ui, title: &str, content: impl FnOnce(&mut Ui)) {
     let ds = get_design_system();
-    
+
     egui::Frame::none()
         .fill(ds.colors.white)
         .stroke(Stroke::new(2.0, ds.colors.black))
@@ -251,10 +246,12 @@ pub fn board_panel(ui: &mut Ui, title: &str, content: impl FnOnce(&mut Ui)) {
         .rounding(Rounding::ZERO)
         .show(ui, |ui| {
             // Bold title
-            ui.label(egui::RichText::new(title)
-                .font(ds.font_id(TextStyle::Heading))
-                .strong()
-                .color(ds.colors.black));
+            ui.label(
+                egui::RichText::new(title)
+                    .font(ds.font_id(TextStyle::Heading))
+                    .strong()
+                    .color(ds.colors.black),
+            );
             ui.add_space(ds.spacing.sm);
             ui.add(egui::Separator::default().horizontal());
             ui.add_space(ds.spacing.sm);

@@ -1,12 +1,12 @@
 //! Relay service robustness improvements for federated learning
 
+use anyhow::{anyhow, Result};
+use libp2p::{Multiaddr, PeerId};
+use serde::{Deserialize, Serialize};
+use std::collections::{HashMap, VecDeque};
 use std::sync::{Arc, RwLock};
 use std::time::{Duration, Instant};
-use std::collections::{HashMap, VecDeque};
-use libp2p::{PeerId, Multiaddr};
 use tokio::sync::broadcast;
-use anyhow::{Result, anyhow};
-use serde::{Serialize, Deserialize};
 
 /// Relay node state for high availability
 #[derive(Debug, Clone)]
@@ -35,9 +35,7 @@ pub enum HealthStatus {
     /// Node is healthy and accepting connections
     Healthy,
     /// Node is degraded but operational
-    Degraded {
-        reason: DegradationReason,
-    },
+    Degraded { reason: DegradationReason },
     /// Node is unhealthy and should not be used
     Unhealthy,
     /// Node is in maintenance mode
@@ -76,7 +74,10 @@ pub enum RelayEvent {
     /// A relay node left the federation
     NodeLeft { peer_id: PeerId },
     /// A relay node's health changed
-    HealthChanged { peer_id: PeerId, health: HealthStatus },
+    HealthChanged {
+        peer_id: PeerId,
+        health: HealthStatus,
+    },
     /// Failover initiated
     FailoverInitiated { from: PeerId, to: PeerId },
     /// Federation consensus achieved
@@ -91,7 +92,10 @@ pub enum FederationDecision {
     /// Redistribute load
     RedistributeLoad { assignments: HashMap<PeerId, u32> },
     /// Start federated learning round
-    StartFLRound { round_id: u64, participants: Vec<PeerId> },
+    StartFLRound {
+        round_id: u64,
+        participants: Vec<PeerId>,
+    },
     /// Emergency shutdown of unhealthy node
     EmergencyShutdown { peer_id: PeerId },
 }
@@ -157,9 +161,9 @@ impl RelayFederation {
             cpu_usage: 0.0,
             fl_rounds_completed: 0,
         };
-        
+
         let (events_tx, _) = broadcast::channel(1000);
-        
+
         Self {
             our_state: Arc::new(RwLock::new(our_state)),
             federation_members: Arc::new(RwLock::new(HashMap::new())),
@@ -169,7 +173,7 @@ impl RelayFederation {
             events: events_tx,
         }
     }
-    
+
     /// Join a relay federation
     pub async fn join_federation(&self, bootstrap_nodes: Vec<Multiaddr>) -> Result<()> {
         // Connect to bootstrap nodes
@@ -177,32 +181,32 @@ impl RelayFederation {
             // Implementation would dial and exchange federation info
             tracing::info!("Connecting to bootstrap node: {}", addr);
         }
-        
+
         // Start heartbeat task
         self.start_heartbeat().await;
-        
+
         // Start health monitoring
         self.start_health_monitor().await;
-        
+
         Ok(())
     }
-    
+
     /// Start heartbeat task
     async fn start_heartbeat(&self) {
         let state = self.our_state.clone();
         let members = self.federation_members.clone();
-        
+
         tokio::spawn(async move {
             let mut interval = tokio::time::interval(Duration::from_secs(5));
-            
+
             loop {
                 interval.tick().await;
-                
+
                 // Update our heartbeat
                 if let Ok(mut our_state) = state.write() {
                     our_state.last_heartbeat = Instant::now();
                 }
-                
+
                 // Check federation members
                 if let Ok(members) = members.read() {
                     for (peer_id, member) in members.iter() {
@@ -214,35 +218,44 @@ impl RelayFederation {
             }
         });
     }
-    
+
     /// Start health monitoring
     async fn start_health_monitor(&self) {
         let state = self.our_state.clone();
         let events = self.events.clone();
         let metrics = self.metrics.clone();
-        
+
         tokio::spawn(async move {
             let mut interval = tokio::time::interval(Duration::from_secs(10));
-            
+
             loop {
                 interval.tick().await;
-                
+
                 // Calculate health metrics
-                let active_conns = metrics.active_connections.load(std::sync::atomic::Ordering::Relaxed);
+                let active_conns = metrics
+                    .active_connections
+                    .load(std::sync::atomic::Ordering::Relaxed);
                 let cpu_usage = get_cpu_usage();
                 let bandwidth = calculate_bandwidth(&metrics);
-                
+
                 // Determine health status
                 let health = if cpu_usage > 80.0 {
-                    HealthStatus::Degraded { reason: DegradationReason::HighLoad }
+                    HealthStatus::Degraded {
+                        reason: DegradationReason::HighLoad,
+                    }
                 } else if active_conns > 1000 {
-                    HealthStatus::Degraded { reason: DegradationReason::HighLoad }
-                } else if bandwidth < 1_000_000 { // Less than 1 MB/s available
-                    HealthStatus::Degraded { reason: DegradationReason::LowBandwidth }
+                    HealthStatus::Degraded {
+                        reason: DegradationReason::HighLoad,
+                    }
+                } else if bandwidth < 1_000_000 {
+                    // Less than 1 MB/s available
+                    HealthStatus::Degraded {
+                        reason: DegradationReason::LowBandwidth,
+                    }
                 } else {
                     HealthStatus::Healthy
                 };
-                
+
                 // Update state
                 if let Ok(mut our_state) = state.write() {
                     if our_state.health != health {
@@ -252,7 +265,7 @@ impl RelayFederation {
                             health,
                         });
                     }
-                    
+
                     our_state.active_connections = active_conns;
                     our_state.cpu_usage = cpu_usage;
                     our_state.bandwidth_usage = bandwidth;
@@ -260,87 +273,104 @@ impl RelayFederation {
             }
         });
     }
-    
+
     /// Handle connection request with load balancing
     pub async fn handle_connection(&self, peer_id: PeerId) -> Result<PeerId> {
         // Get current federation state
-        let members = self.federation_members.read()
+        let members = self
+            .federation_members
+            .read()
             .map_err(|_| anyhow!("Failed to read federation members"))?;
-        
+
         // Include ourselves in the selection
         let mut all_nodes = vec![self.our_state.read().unwrap().clone()];
         all_nodes.extend(members.values().cloned());
-        
+
         // Filter healthy nodes
-        let healthy_nodes: Vec<_> = all_nodes.into_iter()
-            .filter(|node| matches!(node.health, HealthStatus::Healthy | HealthStatus::Degraded { .. }))
+        let healthy_nodes: Vec<_> = all_nodes
+            .into_iter()
+            .filter(|node| {
+                matches!(
+                    node.health,
+                    HealthStatus::Healthy | HealthStatus::Degraded { .. }
+                )
+            })
             .collect();
-        
+
         if healthy_nodes.is_empty() {
             return Err(anyhow!("No healthy relay nodes available"));
         }
-        
+
         // Select relay using consistent hashing
         let selected = self.load_balancer.select_relay(&peer_id, &healthy_nodes)?;
-        
+
         // Update metrics
         if selected == self.our_state.read().unwrap().peer_id {
-            self.metrics.active_connections.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            self.metrics
+                .active_connections
+                .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         }
-        
+
         Ok(selected)
     }
-    
+
     /// Initiate failover for unhealthy node
     pub async fn initiate_failover(&self, failed_node: PeerId) -> Result<()> {
         // Get connections from failed node
         let connections = self.get_node_connections(&failed_node).await?;
-        
+
         // Redistribute connections
         for conn_peer_id in connections {
             let new_relay = self.handle_connection(conn_peer_id).await?;
-            
+
             self.events.send(RelayEvent::FailoverInitiated {
                 from: failed_node,
                 to: new_relay,
             })?;
         }
-        
+
         Ok(())
     }
-    
+
     /// Get connections for a specific node
     async fn get_node_connections(&self, _node: &PeerId) -> Result<Vec<PeerId>> {
         // In real implementation, this would query the node's connection list
         Ok(vec![])
     }
-    
+
     /// Coordinate federated learning round
     pub async fn coordinate_fl_round(&self, round_id: u64) -> Result<()> {
         // Check if we're the leader
         if !self.consensus.is_leader() {
             return Err(anyhow!("Not the federation leader"));
         }
-        
+
         // Get healthy nodes for participation
-        let members = self.federation_members.read()
+        let members = self
+            .federation_members
+            .read()
             .map_err(|_| anyhow!("Failed to read federation members"))?;
-        
-        let participants: Vec<PeerId> = members.iter()
+
+        let participants: Vec<PeerId> = members
+            .iter()
             .filter(|(_, state)| matches!(state.health, HealthStatus::Healthy))
             .map(|(peer_id, _)| *peer_id)
             .collect();
-        
+
         if participants.len() < 3 {
             return Err(anyhow!("Insufficient healthy nodes for federated learning"));
         }
-        
+
         // Broadcast decision
-        let decision = FederationDecision::StartFLRound { round_id, participants: participants.clone() };
+        let decision = FederationDecision::StartFLRound {
+            round_id,
+            participants: participants.clone(),
+        };
         self.consensus.propose_decision(decision.clone()).await?;
-        
-        self.events.send(RelayEvent::ConsensusReached { decision })?;
-        
+
+        self.events
+            .send(RelayEvent::ConsensusReached { decision })?;
+
         Ok(())
     }
 }
@@ -354,11 +384,11 @@ impl RaftConsensus {
             _decisions: VecDeque::with_capacity(1000),
         }
     }
-    
+
     fn is_leader(&self) -> bool {
         self.state == RaftState::Leader
     }
-    
+
     async fn propose_decision(&self, _decision: FederationDecision) -> Result<()> {
         // Raft consensus implementation
         Ok(())
@@ -373,14 +403,14 @@ impl ConsistentHashLoadBalancer {
             hasher: blake3::Hasher::new(),
         }
     }
-    
+
     fn select_relay(&self, peer_id: &PeerId, nodes: &[RelayNodeState]) -> Result<PeerId> {
         // Simple round-robin for now, would use consistent hashing in production
         let hash = self.hash_peer_id(peer_id);
         let index = (hash % nodes.len() as u64) as usize;
         Ok(nodes[index].peer_id)
     }
-    
+
     fn hash_peer_id(&self, peer_id: &PeerId) -> u64 {
         let mut hasher = self.hasher.clone();
         hasher.update(&peer_id.to_bytes());
@@ -391,9 +421,9 @@ impl ConsistentHashLoadBalancer {
 
 impl RelayMetrics {
     fn new() -> Self {
-        use std::sync::atomic::AtomicU64;
         use std::sync::atomic::AtomicU32;
-        
+        use std::sync::atomic::AtomicU64;
+
         Self {
             total_connections: AtomicU64::new(0),
             active_connections: AtomicU32::new(0),
@@ -414,48 +444,61 @@ fn get_cpu_usage() -> f32 {
 
 fn calculate_bandwidth(metrics: &RelayMetrics) -> u64 {
     // Simplified - would calculate actual bandwidth usage
-    metrics.bytes_transferred.load(std::sync::atomic::Ordering::Relaxed) / 60 // bytes/sec over last minute
+    metrics
+        .bytes_transferred
+        .load(std::sync::atomic::Ordering::Relaxed)
+        / 60 // bytes/sec over last minute
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     #[tokio::test]
     async fn test_relay_federation_creation() {
         let peer_id = PeerId::random();
         let federation = RelayFederation::new(peer_id, vec![]);
-        
+
         let state = federation.our_state.read().unwrap();
         assert_eq!(state.peer_id, peer_id);
         assert_eq!(state.health, HealthStatus::Healthy);
     }
-    
+
     #[tokio::test]
     async fn test_load_balancing() {
         let peer_id = PeerId::random();
         let federation = RelayFederation::new(peer_id, vec![]);
-        
+
         // Add some federation members
         let mut members = federation.federation_members.write().unwrap();
         for _ in 0..3 {
             let member_id = PeerId::random();
-            members.insert(member_id, RelayNodeState {
-                peer_id: member_id,
-                addresses: vec![],
-                health: HealthStatus::Healthy,
-                last_heartbeat: Instant::now(),
-                active_connections: 0,
-                bandwidth_usage: 0,
-                cpu_usage: 0.0,
-                fl_rounds_completed: 0,
-            });
+            members.insert(
+                member_id,
+                RelayNodeState {
+                    peer_id: member_id,
+                    addresses: vec![],
+                    health: HealthStatus::Healthy,
+                    last_heartbeat: Instant::now(),
+                    active_connections: 0,
+                    bandwidth_usage: 0,
+                    cpu_usage: 0.0,
+                    fl_rounds_completed: 0,
+                },
+            );
         }
         drop(members);
-        
+
         // Test connection handling
         let client = PeerId::random();
         let selected = federation.handle_connection(client).await.unwrap();
-        assert!(selected == peer_id || federation.federation_members.read().unwrap().contains_key(&selected));
+        assert!(
+            selected == peer_id
+                || federation
+                    .federation_members
+                    .read()
+                    .unwrap()
+                    .contains_key(&selected)
+        );
     }
 }

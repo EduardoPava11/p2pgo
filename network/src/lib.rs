@@ -14,39 +14,39 @@
 
 #![deny(unsafe_code)]
 
-use libp2p::{PeerId, Multiaddr};
+use libp2p::{Multiaddr, PeerId};
 use p2pgo_core;
 
-pub mod behaviour;
-pub mod bootstrap;
-pub mod relay_node;
 pub mod auto_update;
-pub mod rna;
-pub mod bootstrap_relay;
+pub mod behaviour;
 pub mod benchmark;
-pub mod simple_relay;
-pub mod relay_server;
-pub mod relay_mesh;
+pub mod bootstrap;
+pub mod bootstrap_relay;
 pub mod circuit_relay_v2;
 pub mod net_util;
+pub mod relay_mesh;
+pub mod relay_node;
 pub mod relay_provider;
+pub mod relay_server;
+pub mod rna;
+pub mod simple_relay;
 
 // Keep existing modules that don't depend on iroh
-pub mod config;
-pub mod port;
-pub mod lobby;
-pub mod game_channel;
-pub mod neural_marketplace;
 pub mod blob_store;
-pub mod relay_monitor;
+pub mod config;
+pub mod connection_manager;
+pub mod game_channel;
+pub mod game_classifier;
 pub mod guilds;
 pub mod health;
+pub mod lobby;
 pub mod message_security;
-pub mod connection_manager;
-pub mod relay_robustness;
-pub mod game_classifier;
-pub mod smart_load_balancer;
+pub mod neural_marketplace;
+pub mod port;
 pub mod protocols;
+pub mod relay_monitor;
+pub mod relay_robustness;
+pub mod smart_load_balancer;
 // pub mod p2p_behaviour;  // TODO: Fix Option<Behaviour> issue
 pub mod p2p_behaviour_simple;
 // pub mod p2p_node; // TODO: Fix libp2p NetworkBehaviour compilation
@@ -83,25 +83,25 @@ impl P2PContext {
             addresses: Vec::new(),
         }
     }
-    
+
     pub fn peer_id(&self) -> libp2p::PeerId {
         self.peer_id
     }
-    
+
     pub fn node_id(&self) -> String {
         self.peer_id.to_string()
     }
-    
+
     pub fn add_address(&mut self, addr: libp2p::Multiaddr) {
         if !self.addresses.contains(&addr) {
             self.addresses.push(addr);
         }
     }
-    
+
     pub fn addresses(&self) -> &[libp2p::Multiaddr] {
         &self.addresses
     }
-    
+
     pub fn ticket(&self) -> String {
         // Create a multiaddr-based ticket for connection
         if let Some(addr) = self.addresses.first() {
@@ -110,33 +110,37 @@ impl P2PContext {
             self.peer_id.to_string()
         }
     }
-    
+
     // Stub methods for compatibility
     pub async fn advertise_game(&self, _game_info: &crate::lobby::GameInfo) -> anyhow::Result<()> {
         // TODO: Implement game advertisement via libp2p gossipsub
         Ok(())
     }
-    
+
     pub async fn store_move_tag(&self, _game_id: &str, _tag: &str) -> anyhow::Result<()> {
         // TODO: Implement move tag storage
         Ok(())
     }
-    
+
     pub async fn connect_by_ticket(&self, _ticket: &str) -> anyhow::Result<()> {
         // TODO: Implement ticket-based connection via libp2p multiaddr
         Ok(())
     }
-    
-    pub async fn store_game_move(&self, _game_id: &str, _mv: p2pgo_core::Move) -> anyhow::Result<()> {
+
+    pub async fn store_game_move(
+        &self,
+        _game_id: &str,
+        _mv: p2pgo_core::Move,
+    ) -> anyhow::Result<()> {
         // TODO: Implement move storage
         Ok(())
     }
 }
 
 // Re-exports
-pub use behaviour::{P2PGoBehaviour, Event};
+pub use auto_update::{AutoUpdater, UpdateConfig};
+pub use behaviour::{Event, P2PGoBehaviour};
 pub use bootstrap::{Bootstrap, BootstrapConfig};
+pub use bootstrap_relay::{run_bootstrap_relay, BootstrapRelay};
 pub use relay_node::RelayNode;
 pub use rna::{RNAMessage, RNAType};
-pub use bootstrap_relay::{BootstrapRelay, run_bootstrap_relay};
-pub use auto_update::{AutoUpdater, UpdateConfig};

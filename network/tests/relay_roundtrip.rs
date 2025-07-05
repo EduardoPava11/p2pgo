@@ -3,8 +3,8 @@
 
 #[cfg(feature = "iroh")]
 mod tests {
-    use p2pgo_network::iroh_endpoint::IrohCtx;
     use anyhow::Result;
+    use p2pgo_network::iroh_endpoint::IrohCtx;
     use tokio::time::{timeout, Duration};
 
     #[tokio::test]
@@ -18,7 +18,7 @@ mod tests {
 
         // Generate ticket from host - must advertise relay addresses
         let ticket = timeout(Duration::from_secs(10), host.ticket()).await??;
-        
+
         // Verify ticket contains relay information
         assert!(
             ticket.contains("/relay") || ticket.len() > 20, // Not a stub ticket
@@ -31,7 +31,7 @@ mod tests {
 
         // Test direct peer connection for game communication
         let conn = timeout(Duration::from_secs(10), guest.connect_to_peer(&ticket)).await??;
-        
+
         // Quick sanity check: send a message over the connection
         let mut stream = conn.open_uni().await?;
         stream.write_all(b"ping").await?;
@@ -44,16 +44,19 @@ mod tests {
     #[tokio::test]
     async fn external_addresses_available() -> Result<()> {
         let ctx = IrohCtx::new().await?;
-        
+
         // Wait for node to be ready
         tokio::time::sleep(Duration::from_millis(1000)).await;
-        
+
         // Check that external addresses are available
         let external_addrs = ctx.external_addrs().await?;
-        
+
         // We should have at least one external address (relay or direct)
-        assert!(!external_addrs.is_empty(), "Node should have external addresses");
-        
+        assert!(
+            !external_addrs.is_empty(),
+            "Node should have external addresses"
+        );
+
         println!("✅ External addresses: {:?}", external_addrs);
         Ok(())
     }

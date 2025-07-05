@@ -1,11 +1,11 @@
-use anyhow::{Result, anyhow};
-use std::path::{Path, PathBuf};
-use std::fs;
+use anyhow::{anyhow, Result};
 use serde::{Deserialize, Serialize};
+use std::fs;
+use std::path::{Path, PathBuf};
 
-use crate::{GameState, Move, Coord};
-use crate::sgf::SgfProcessor;
 use crate::ko_detector::{KoDetector, KoSituation};
+use crate::sgf::SgfProcessor;
+use crate::{Coord, GameState, Move};
 
 /// SGF Parser for compatibility
 pub struct SGFParser;
@@ -14,7 +14,7 @@ impl SGFParser {
     pub fn parse_file(path: &Path) -> Result<ParsedGame> {
         parse_sgf_with_ko_detection(path)
     }
-    
+
     pub fn parse_string(content: &str) -> Result<ParsedGame> {
         parse_sgf_content_with_ko_detection(content, "<string>".to_string())
     }
@@ -60,13 +60,16 @@ pub fn parse_sgf_with_ko_detection(sgf_path: &Path) -> Result<ParsedGame> {
 }
 
 /// Parse SGF content and detect Ko situations
-pub fn parse_sgf_content_with_ko_detection(sgf_content: &str, source_path: String) -> Result<ParsedGame> {
+pub fn parse_sgf_content_with_ko_detection(
+    sgf_content: &str,
+    source_path: String,
+) -> Result<ParsedGame> {
     let mut warnings = Vec::new();
-    
+
     // Parse SGF
     let initial_state = GameState::new(19); // Default, will be updated
     let mut sgf_processor = SgfProcessor::new(initial_state);
-    
+
     let parsed_state = match sgf_processor.parse(sgf_content) {
         Ok(state) => state,
         Err(e) => {
@@ -75,27 +78,27 @@ pub fn parse_sgf_content_with_ko_detection(sgf_content: &str, source_path: Strin
             return Err(anyhow!("Failed to parse SGF: {}", e));
         }
     };
-    
+
     // Extract metadata
     let metadata = extract_metadata_from_content(sgf_content, &parsed_state);
-    
+
     // Detect Ko situations
     let mut ko_detector = KoDetector::new();
     let mut board = crate::board::Board::new(parsed_state.board_size);
     let mut ko_situations = Vec::new();
-    
+
     // Process each move
     for (_move_num, mv) in parsed_state.moves.iter().enumerate() {
         match mv {
             Move::Place { x, y, color } => {
                 let coord = Coord::new(*x, *y);
-                
+
                 // Get captures before placing stone
                 let captured = Vec::new();
-                
+
                 // Place stone and check for captures
                 board.place(coord, *color);
-                
+
                 // Check for Ko
                 if let Some(ko) = ko_detector.process_move(&board, mv, &captured) {
                     ko_situations.push(ko);
@@ -104,16 +107,19 @@ pub fn parse_sgf_content_with_ko_detection(sgf_content: &str, source_path: Strin
             _ => {} // Pass or Resign
         }
     }
-    
+
     // Generate warnings
     if ko_situations.is_empty() {
         warnings.push("No Ko situations found in this game. Consider using Ko pattern generator for training.".to_string());
     }
-    
+
     if metadata.total_moves < 50 {
-        warnings.push(format!("Short game with only {} moves. May have limited training value.", metadata.total_moves));
+        warnings.push(format!(
+            "Short game with only {} moves. May have limited training value.",
+            metadata.total_moves
+        ));
     }
-    
+
     Ok(ParsedGame {
         id: generate_game_id(&source_path),
         source_path,
@@ -136,7 +142,7 @@ fn extract_metadata_from_content(sgf_content: &str, game_state: &GameState) -> G
         }
         String::new()
     };
-    
+
     GameMetadata {
         black_player: extract_property("PB"),
         white_player: extract_property("PW"),
@@ -154,17 +160,18 @@ fn extract_metadata_from_content(sgf_content: &str, game_state: &GameState) -> G
 fn generate_game_id(source_path: &str) -> String {
     use std::collections::hash_map::DefaultHasher;
     use std::hash::{Hash, Hasher};
-    
+
     let mut hasher = DefaultHasher::new();
     source_path.hash(&mut hasher);
     let hash = hasher.finish();
-    
+
     format!("game_{:x}", hash)
 }
 
 /// Batch parse multiple SGF files
 pub fn batch_parse_sgf_files(paths: &[PathBuf]) -> Vec<Result<ParsedGame>> {
-    paths.iter()
+    paths
+        .iter()
         .map(|path| parse_sgf_with_ko_detection(path))
         .collect()
 }
@@ -188,15 +195,15 @@ pub fn calculate_library_stats(games: &[ParsedGame]) -> GameLibraryStats {
     let mut total_moves = 0;
     let mut total_ko = 0;
     let mut games_with_ko = 0;
-    
+
     for game in games {
         total_moves += game.metadata.total_moves;
         total_ko += game.ko_situations.len();
-        
+
         if !game.ko_situations.is_empty() {
             games_with_ko += 1;
         }
-        
+
         // Count ranks
         for rank in [&game.metadata.black_rank, &game.metadata.white_rank] {
             if !rank.is_empty() {
@@ -204,13 +211,17 @@ pub fn calculate_library_stats(games: &[ParsedGame]) -> GameLibraryStats {
             }
         }
     }
-    
+
     GameLibraryStats {
         total_games: games.len(),
         games_with_ko,
         total_ko_situations: total_ko,
         total_moves,
-        average_game_length: if games.is_empty() { 0.0 } else { total_moves as f32 / games.len() as f32 },
+        average_game_length: if games.is_empty() {
+            0.0
+        } else {
+            total_moves as f32 / games.len() as f32
+        },
         player_ranks,
     }
 }

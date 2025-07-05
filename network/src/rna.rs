@@ -30,42 +30,42 @@ pub enum RNAType {
         move_range: (usize, usize),
         player_ranks: (String, String),
     },
-    
-    /// Pattern data (tRNA) 
+
+    /// Pattern data (tRNA)
     PatternData {
         pattern_type: String,
         board_region: (usize, usize, usize, usize), // x, y, width, height
         frequency: f32,
     },
-    
+
     /// Model weight updates
     ModelWeights {
         model_type: String,
         layer_updates: Vec<Vec<f32>>,
         consensus_count: usize,
     },
-    
+
     /// Regulatory signal (miRNA)
     RegulatorySignal {
         signal_type: String,
         value: f32,
         confidence: f32,
     },
-    
+
     /// Style transfer data (lncRNA)
     StyleTransfer {
         style_name: String,
         style_vector: Vec<f32>,
         source_player: String,
     },
-    
+
     /// Relay discovery
     RelayDiscovery {
         addresses: Vec<String>,
         discovery_score: f32,
         capabilities: Vec<String>,
     },
-    
+
     /// Training consensus
     TrainingConsensus {
         epoch: u32,

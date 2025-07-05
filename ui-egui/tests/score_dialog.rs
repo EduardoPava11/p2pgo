@@ -10,13 +10,13 @@ fn score_dialog_updates_game_counter() {
         auto_refresh: true,
         games_finished: 0,
     };
-    
+
     // Initial game count should be 0
     assert_eq!(config.games_finished, 0);
-    
+
     // Simulate accepting score
     config.games_finished += 1;
-    
+
     // Games finished should be incremented
     assert_eq!(config.games_finished, 1);
 }
@@ -33,7 +33,7 @@ fn score_dialog_view_structure() {
         komi: 6.5,
         method: p2pgo_core::value_labeller::ScoringMethod::Territory,
     };
-    
+
     let view = View::ScoreDialog {
         game_id: "test".into(),
         game_state: p2pgo_core::GameState::new(9),
@@ -42,9 +42,13 @@ fn score_dialog_view_structure() {
         score_pending: false,
         score_accepted: true,
     };
-    
+
     // Check that we can extract the score proof
-    if let View::ScoreDialog { score_proof: extracted_proof, .. } = view {
+    if let View::ScoreDialog {
+        score_proof: extracted_proof,
+        ..
+    } = view
+    {
         assert_eq!(extracted_proof.final_score, 5);
         assert_eq!(extracted_proof.territory_black, 10);
         assert_eq!(extracted_proof.territory_white, 5);

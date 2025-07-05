@@ -6,8 +6,8 @@
 //! - Territory marking visualization
 //! - WASM tensor-based parameter adjustment
 
-use serde::{Serialize, Deserialize};
-use egui::{Color32, FontId, FontFamily, Vec2, Rounding};
+use egui::{Color32, FontFamily, FontId, Rounding, Vec2};
+use serde::{Deserialize, Serialize};
 
 /// Complete UI configuration for the game
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -114,7 +114,7 @@ pub struct TerritoryConfig {
     pub marker_size_ratio: f32,
     /// Black territory color
     pub black_territory_color: SerializableColor,
-    /// White territory color  
+    /// White territory color
     pub white_territory_color: SerializableColor,
     /// Neutral/dame color
     pub neutral_color: SerializableColor,
@@ -208,12 +208,12 @@ impl Default for UiConfig {
                 padding: 20.0,
                 background_color: Color32::from_rgb(245, 245, 245).into(), // Clean light gray background
             },
-            
+
             board: BoardConfig {
                 size: 800.0, // Generous board size
                 margin: 50.0,
                 grid_color: Color32::from_rgb(0, 0, 0).into(), // Pure black grid lines like OGS
-                grid_line_width: 1.0, // Thinner lines for cleaner look
+                grid_line_width: 1.0,                          // Thinner lines for cleaner look
                 star_point_radius: 3.5,
                 background_color: Color32::from_rgb(255, 255, 255).into(), // Pure white board like OGS
                 stone_radius_ratio: 0.46, // Slightly smaller for cleaner look
@@ -224,7 +224,7 @@ impl Default for UiConfig {
                 show_coordinates: true,
                 coordinate_font_size: 12.0,
             },
-            
+
             button: ButtonConfig {
                 font_family: "Open Sans".to_string(),
                 font_size: 14.0,
@@ -240,7 +240,7 @@ impl Default for UiConfig {
                 shadow_offset: None, // No shadow for cleaner look
                 shadow_color: Color32::from_rgba_unmultiplied(0, 0, 0, 0).into(),
             },
-            
+
             territory: TerritoryConfig {
                 marker_type: TerritoryMarkerType::Square,
                 marker_size_ratio: 0.25, // Smaller markers
@@ -251,14 +251,14 @@ impl Default for UiConfig {
                 animation_duration: 150,
                 show_count: true,
             },
-            
+
             fonts: FontConfig {
                 ui_font: "Open Sans".to_string(),
                 mono_font: "Fira Code".to_string(),
                 bold_weight: 700.0,
                 line_height: 1.4,
             },
-            
+
             colors: ColorScheme {
                 primary: Color32::from_rgb(64, 128, 255).into(),
                 secondary: Color32::from_rgb(128, 64, 255).into(),
@@ -280,30 +280,30 @@ impl UiConfig {
         let config = serde_json::from_str(&contents)?;
         Ok(config)
     }
-    
+
     /// Save config to file
     pub fn save_to_file(&self, path: &std::path::Path) -> Result<(), Box<dyn std::error::Error>> {
         let contents = serde_json::to_string_pretty(self)?;
         std::fs::write(path, contents)?;
         Ok(())
     }
-    
+
     /// Apply WASM tensor parameters to modify UI
     pub fn apply_tensor_params(&mut self, tensor_data: &[f32]) {
         // Example: Use tensor values to adjust UI parameters
         // This could be from a trained model that learns user preferences
-        
+
         if tensor_data.len() >= 3 {
             // Adjust grid line width based on first tensor value
             self.board.grid_line_width = 0.5 + (tensor_data[0] * 2.0).clamp(0.0, 3.0);
-            
+
             // Adjust stone size based on second tensor value
             self.board.stone_radius_ratio = 0.4 + (tensor_data[1] * 0.2).clamp(0.0, 0.1);
-            
+
             // Adjust territory marker size based on third tensor value
             self.territory.marker_size_ratio = 0.2 + (tensor_data[2] * 0.3).clamp(0.0, 0.2);
         }
-        
+
         // More sophisticated mappings could be added here
         // For example, using tensor values to interpolate between color schemes
         // or to adjust animation speeds based on learned user preferences
@@ -318,19 +318,22 @@ pub fn create_font_id(_config: &UiConfig, size: f32) -> FontId {
 /// Helper to create button from config
 pub fn styled_button(ui: &mut egui::Ui, config: &ButtonConfig, text: &str) -> egui::Response {
     let font_id = FontId::new(config.font_size, FontFamily::Proportional);
-    
+
     let text_color: Color32 = config.text_color.into();
     let button_size = Vec2::new(
         config.min_size.0.max(config.padding.0 * 2.0 + 100.0),
-        config.min_size.1.max(config.padding.1 * 2.0 + config.font_size)
+        config
+            .min_size
+            .1
+            .max(config.padding.1 * 2.0 + config.font_size),
     );
-    
+
     // Create custom button with full styling
     let (rect, response) = ui.allocate_exact_size(button_size, egui::Sense::click());
-    
+
     if ui.is_rect_visible(rect) {
         let _visuals = ui.style().interact(&response);
-        
+
         // Determine background color based on state
         let bg_color: Color32 = if response.clicked() {
             config.click_color.into()
@@ -339,25 +342,25 @@ pub fn styled_button(ui: &mut egui::Ui, config: &ButtonConfig, text: &str) -> eg
         } else {
             config.background_color.into()
         };
-        
+
         // Draw shadow if configured
         if let Some((x_offset, y_offset)) = config.shadow_offset {
             let shadow_rect = rect.translate(Vec2::new(x_offset, y_offset));
             ui.painter().rect_filled(
                 shadow_rect,
                 Rounding::same(config.corner_radius),
-                Color32::from(config.shadow_color)
+                Color32::from(config.shadow_color),
             );
         }
-        
+
         // Draw button background
         ui.painter().rect(
             rect,
             Rounding::same(config.corner_radius),
             bg_color,
-            egui::Stroke::new(config.border_width, Color32::from(config.border_color))
+            egui::Stroke::new(config.border_width, Color32::from(config.border_color)),
         );
-        
+
         // Draw text
         ui.painter().text(
             rect.center(),
@@ -367,14 +370,14 @@ pub fn styled_button(ui: &mut egui::Ui, config: &ButtonConfig, text: &str) -> eg
             text_color,
         );
     }
-    
+
     response
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     #[test]
     fn test_default_config() {
         let config = UiConfig::default();
@@ -382,7 +385,7 @@ mod tests {
         assert_eq!(config.board.size, 800.0);
         assert_eq!(config.button.font_size, 16.0);
     }
-    
+
     #[test]
     fn test_color_conversion() {
         let egui_color = Color32::from_rgb(100, 150, 200);
@@ -390,15 +393,15 @@ mod tests {
         let back_color: Color32 = ser_color.into();
         assert_eq!(egui_color, back_color);
     }
-    
+
     #[test]
     fn test_tensor_params() {
         let mut config = UiConfig::default();
         let original_grid_width = config.board.grid_line_width;
-        
+
         let tensor_data = vec![0.5, 0.5, 0.5];
         config.apply_tensor_params(&tensor_data);
-        
+
         assert_ne!(config.board.grid_line_width, original_grid_width);
     }
 }

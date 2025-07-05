@@ -1,8 +1,4 @@
-use libp2p::{
-    autonat, dcutr, gossipsub, identify, kad, mdns,
-    swarm::NetworkBehaviour,
-    PeerId,
-};
+use libp2p::{autonat, dcutr, gossipsub, identify, kad, mdns, swarm::NetworkBehaviour, PeerId};
 use std::time::Duration;
 
 /// Main network behaviour for P2P Go
@@ -11,22 +7,21 @@ use std::time::Duration;
 pub struct P2PGoBehaviour {
     // Relay client removed for libp2p 0.53 compatibility
     // TODO: Add relay support when API stabilizes
-    
     /// DHT for peer discovery
     pub kademlia: kad::Behaviour<kad::store::MemoryStore>,
-    
+
     /// Gossipsub for game data and RNA propagation
     pub gossipsub: gossipsub::Behaviour,
-    
+
     /// Direct connection upgrade through relay
     pub dcutr: dcutr::Behaviour,
-    
+
     /// Peer identification (required for Kademlia)
     pub identify: identify::Behaviour,
-    
+
     /// AutoNAT for external address detection
     pub autonat: autonat::Behaviour,
-    
+
     /// mDNS for local network discovery
     pub mdns: mdns::tokio::Behaviour,
 }
@@ -40,7 +35,6 @@ pub enum Event {
     Autonat(autonat::Event),
     Mdns(mdns::Event),
 }
-
 
 impl From<kad::Event> for Event {
     fn from(event: kad::Event) -> Self {
@@ -99,7 +93,8 @@ impl P2PGoBehaviour {
         let gossipsub = gossipsub::Behaviour::new(
             gossipsub::MessageAuthenticity::Signed(keypair.clone()),
             gossipsub_config,
-        ).map_err(|e| anyhow::anyhow!("Failed to create gossipsub: {}", e))?;
+        )
+        .map_err(|e| anyhow::anyhow!("Failed to create gossipsub: {}", e))?;
 
         // Configure Identify
         let identify = identify::Behaviour::new(identify::Config::new(

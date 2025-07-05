@@ -1,9 +1,9 @@
 //! Health check and monitoring endpoints for P2P network
 
-use serde::{Serialize, Deserialize};
-use std::time::{Instant, SystemTime};
-use std::sync::{Arc, RwLock};
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::sync::{Arc, RwLock};
+use std::time::{Instant, SystemTime};
 
 /// Overall system health status
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -125,7 +125,7 @@ impl HealthManager {
             })),
         }
     }
-    
+
     /// Update component health
     pub fn update_component(&self, name: &str, status: HealthStatus, message: String) {
         let component = ComponentHealth {
@@ -135,41 +135,41 @@ impl HealthManager {
             last_check: SystemTime::now(),
             metadata: serde_json::json!({}),
         };
-        
+
         if let Ok(mut components) = self.components.write() {
             components.insert(name.to_string(), component);
         }
     }
-    
+
     /// Update network statistics
-    pub fn update_network_stats<F>(&self, updater: F) 
+    pub fn update_network_stats<F>(&self, updater: F)
     where
-        F: FnOnce(&mut NetworkHealth)
+        F: FnOnce(&mut NetworkHealth),
     {
         if let Ok(mut stats) = self.network_stats.write() {
             updater(&mut stats);
         }
     }
-    
+
     /// Update game statistics
     pub fn update_game_stats<F>(&self, updater: F)
     where
-        F: FnOnce(&mut GameHealth)
+        F: FnOnce(&mut GameHealth),
     {
         if let Ok(mut stats) = self.game_stats.write() {
             updater(&mut stats);
         }
     }
-    
+
     /// Perform health check
     pub fn check_health(&self) -> HealthCheckResponse {
         let components = self.components.read().unwrap().clone();
         let network = self.network_stats.read().unwrap().clone();
         let game = self.game_stats.read().unwrap().clone();
-        
+
         // Calculate overall status
         let mut overall_status = HealthStatus::Healthy;
-        
+
         // Check component health
         for (_, component) in &components {
             match component.status {
@@ -182,7 +182,7 @@ impl HealthManager {
                 _ => {}
             }
         }
-        
+
         // Check network health
         if network.connected_peers == 0 && !network.bootstrap_complete {
             overall_status = HealthStatus::Unhealthy;
@@ -191,10 +191,10 @@ impl HealthManager {
                 overall_status = HealthStatus::Degraded;
             }
         }
-        
+
         // Get resource usage
         let resources = self.get_resource_usage();
-        
+
         HealthCheckResponse {
             status: overall_status,
             timestamp: SystemTime::now(),
@@ -206,7 +206,7 @@ impl HealthManager {
             resources,
         }
     }
-    
+
     /// Get current resource usage
     fn get_resource_usage(&self) -> ResourceHealth {
         // Get memory usage
@@ -215,14 +215,14 @@ impl HealthManager {
         } else {
             0.0
         };
-        
+
         // Get CPU usage (simplified)
         let cpu_percent = if let Ok(loadavg) = sys_info::loadavg() {
             (loadavg.one * 100.0) as f32
         } else {
             0.0
         };
-        
+
         ResourceHealth {
             memory_mb,
             cpu_percent,
@@ -232,13 +232,13 @@ impl HealthManager {
                 .unwrap_or(1),
         }
     }
-    
+
     /// Check if system is ready for traffic
     pub fn is_ready(&self) -> bool {
         let network = self.network_stats.read().unwrap();
         network.bootstrap_complete && network.connected_peers > 0
     }
-    
+
     /// Get liveness status (is the process alive)
     pub fn is_alive(&self) -> bool {
         // Simple liveness - we're running
@@ -256,7 +256,7 @@ pub async fn health_handler(
         HealthStatus::Degraded => warp::http::StatusCode::OK,
         HealthStatus::Unhealthy => warp::http::StatusCode::SERVICE_UNAVAILABLE,
     };
-    
+
     Ok(warp::reply::with_status(
         warp::reply::json(&health),
         status_code,
@@ -310,37 +310,37 @@ pub async fn alive_handler(
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     #[test]
     fn test_health_manager_creation() {
         let health = HealthManager::new();
         assert!(health.is_alive());
         assert!(!health.is_ready()); // Not ready until bootstrap
     }
-    
+
     #[test]
     fn test_component_update() {
         let health = HealthManager::new();
         health.update_component("test", HealthStatus::Healthy, "All good".to_string());
-        
+
         let check = health.check_health();
         assert!(check.components.contains_key("test"));
         assert_eq!(check.components["test"].status, HealthStatus::Healthy);
     }
-    
+
     #[test]
     fn test_overall_status_calculation() {
         let health = HealthManager::new();
-        
+
         // All healthy
         health.update_component("comp1", HealthStatus::Healthy, "OK".to_string());
         health.update_component("comp2", HealthStatus::Healthy, "OK".to_string());
         assert_eq!(health.check_health().status, HealthStatus::Healthy);
-        
+
         // One degraded
         health.update_component("comp2", HealthStatus::Degraded, "Slow".to_string());
         assert_eq!(health.check_health().status, HealthStatus::Degraded);
-        
+
         // One unhealthy
         health.update_component("comp1", HealthStatus::Unhealthy, "Failed".to_string());
         assert_eq!(health.check_health().status, HealthStatus::Unhealthy);

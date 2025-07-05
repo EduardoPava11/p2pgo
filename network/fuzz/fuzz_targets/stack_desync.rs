@@ -23,7 +23,7 @@ fuzz_target!(|data: &[u8]| {
 
     // Try to treat the data as a MoveMsg
     let result = deserialize_and_process(data);
-    
+
     // We just want to make sure it doesn't panic, so we ignore the result
     let _ = result;
 });
@@ -33,13 +33,13 @@ fuzz_target!(|data: &[u8]| {
 async fn deserialize_and_process(data: &[u8]) -> Result<()> {
     // Create a game state
     let mut game_state = GameState::new(9);
-    
+
     // Create a game channel for testing
     let game_id = "fuzz-test-game";
-    
+
     // Try to deserialize the data as a move from CBOR
     let deserialized_result = deserialize_move_from_bytes(data);
-    
+
     match deserialized_result {
         Ok(mv) => {
             // Try to apply the move
@@ -50,11 +50,11 @@ async fn deserialize_and_process(data: &[u8]) -> Result<()> {
             // Deserialization failed, that's fine
         }
     }
-    
+
     // Also try to deserialize as a game event
     let event_result = deserialize_game_event(data);
     let _ = event_result;
-    
+
     Ok(())
 }
 

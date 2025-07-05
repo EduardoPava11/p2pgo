@@ -2,12 +2,12 @@
 
 //! Common utilities for P2P Go integration tests
 
-use std::sync::Arc;
-use std::time::Duration;
 use anyhow::Result;
 use once_cell::sync::Lazy;
+use std::sync::Arc;
+use std::time::Duration;
 
-use p2pgo_network::{Lobby, GameChannel, GameId, IrohCtx, relay_monitor::RestartableRelay};
+use p2pgo_network::{relay_monitor::RestartableRelay, GameChannel, GameId, IrohCtx, Lobby};
 
 /// Re-export utilities
 pub mod test_utils;
@@ -63,10 +63,10 @@ impl TestPeer {
 
         // Create IrohCtx
         let iroh_ctx = Arc::new(p2pgo_network::IrohCtx::new().await?);
-        
+
         // Create lobby
         let lobby = Lobby::new();
-        
+
         Ok(Self {
             name: config.name,
             iroh_ctx,
@@ -76,31 +76,34 @@ impl TestPeer {
             board_size: config.board_size,
         })
     }
-    
+
     /// Create a new game
     pub async fn create_game(&mut self) -> Result<String> {
         let name = Some(format!("test-game-{}", uuid::Uuid::new_v4()));
         let needs_password = false;
-        let game_id = self.lobby.create_game(name, self.board_size, needs_password).await?;
-        
+        let game_id = self
+            .lobby
+            .create_game(name, self.board_size, needs_password)
+            .await?;
+
         // Get the channel
         let channel = self.lobby.get_game_channel(&game_id).await?;
         self.game_channel = Some(channel);
         self.game_id = Some(game_id.clone());
-        
+
         Ok(game_id)
     }
-    
+
     /// Join a game by ID
     pub async fn join_game(&mut self, game_id: &str) -> Result<()> {
         // Get the channel for the game
         let channel = self.lobby.get_game_channel(&game_id).await?;
         self.game_channel = Some(channel);
         self.game_id = Some(game_id.to_string());
-        
+
         Ok(())
     }
-    
+
     /// Get connection ticket
     pub async fn get_ticket(&self) -> Result<String> {
         self.iroh_ctx.ticket().await
@@ -115,33 +118,31 @@ impl TestPeer {
 /// Spawn two connected peers for testing
 pub async fn spawn_two_peers() -> Result<(TestPeer, TestPeer)> {
     // Create Alice and Bob
-    let mut alice = TestPeer::new(
-        PeerConfig {
-            name: "Alice".to_string(),
-            board_size: 9,
-        }
-    ).await?;
-    
-    let mut bob = TestPeer::new(
-        PeerConfig {
-            name: "Bob".to_string(),
-            board_size: 9,
-        }
-    ).await?;
-    
+    let mut alice = TestPeer::new(PeerConfig {
+        name: "Alice".to_string(),
+        board_size: 9,
+    })
+    .await?;
+
+    let mut bob = TestPeer::new(PeerConfig {
+        name: "Bob".to_string(),
+        board_size: 9,
+    })
+    .await?;
+
     // Connect the peers
     let alice_ticket = alice.get_ticket().await?;
     bob.connect_by_ticket(&alice_ticket).await?;
-    
+
     // Create a game with Alice as host
     let game_id = alice.create_game().await?;
-    
+
     // Have Bob join
     bob.join_game(&game_id).await?;
-    
+
     // Wait for connection to stabilize
     tokio::time::sleep(Duration::from_millis(100)).await;
-    
+
     Ok((alice, bob))
 }
 
@@ -188,7 +189,7 @@ pub async fn spawn_relay(config: RelayConfig) -> Result<TestRelay> {
 
     // Create port manager
     let port_manager = p2pgo_network::port::PortManager::new()?;
-    
+
     // Create relay with limits    // Create relay with builder pattern
     let mut relay = RestartableRelay::new(port_manager.clone())
         .connection_limit(config.max_connections)
@@ -196,7 +197,7 @@ pub async fn spawn_relay(config: RelayConfig) -> Result<TestRelay> {
 
     // Start the relay
     let (tcp_port, udp_port) = relay.start_embedded_relay().await?;
-    
+
     Ok(TestRelay {
         port_manager,
         relay,

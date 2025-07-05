@@ -1,18 +1,15 @@
 use crate::{
-    behaviour::{P2PGoBehaviour, Event}, 
+    behaviour::{Event, P2PGoBehaviour},
     bootstrap::{Bootstrap, BootstrapConfig},
     rna::{RNAMessage, RNAType},
 };
 use anyhow::{Context, Result};
-use libp2p::{
-    identity::Keypair,
-    noise, tcp, yamux, PeerId, Swarm, SwarmBuilder,
-};
+use futures::StreamExt;
+use libp2p::{identity::Keypair, noise, tcp, yamux, PeerId, Swarm, SwarmBuilder};
 use std::{collections::HashMap, time::Instant};
 use tokio::sync::mpsc;
-use tracing::{info, debug, warn};
+use tracing::{debug, info, warn};
 use uuid;
-use futures::StreamExt;
 
 /// Connection metrics for logging
 #[derive(Debug, Clone)]
@@ -64,7 +61,8 @@ impl RelayNode {
 
         // Listen on all interfaces
         let listen_addr = format!("/ip4/0.0.0.0/tcp/0");
-        swarm.listen_on(listen_addr.parse()?)
+        swarm
+            .listen_on(listen_addr.parse()?)
             .context("Failed to start listening")?;
 
         let (rna_tx, rna_rx) = mpsc::channel(100);
@@ -94,22 +92,22 @@ impl RelayNode {
     /// Bootstrap the node
     pub async fn bootstrap(&mut self) -> Result<()> {
         let result = self.bootstrap.bootstrap(&mut self.swarm).await?;
-        info!("Bootstrap complete. Local peer ID: {}", result.local_peer_id);
-        
+        info!(
+            "Bootstrap complete. Local peer ID: {}",
+            result.local_peer_id
+        );
+
         // Subscribe to core topics
-        let topics = vec![
-            "p2pgo/games/v1",
-            "p2pgo/rna/v1",
-            "p2pgo/lobby/v1",
-        ];
-        
+        let topics = vec!["p2pgo/games/v1", "p2pgo/rna/v1", "p2pgo/lobby/v1"];
+
         for topic in topics {
-            self.swarm.behaviour_mut()
+            self.swarm
+                .behaviour_mut()
                 .gossipsub
                 .subscribe(&libp2p::gossipsub::IdentTopic::new(topic))?;
             info!("Subscribed to topic: {}", topic);
         }
-        
+
         Ok(())
     }
 
@@ -122,24 +120,18 @@ impl RelayNode {
     /// Broadcast RNA message (game data)
     pub async fn broadcast_rna(&mut self, rna: RNAMessage) -> Result<()> {
         let data = serde_cbor::to_vec(&rna)?;
-        
-        self.swarm.behaviour_mut()
+
+        self.swarm
+            .behaviour_mut()
             .gossipsub
-            .publish(
-                libp2p::gossipsub::IdentTopic::new("p2pgo/rna/v1"),
-                data,
-            )?;
-        
+            .publish(libp2p::gossipsub::IdentTopic::new("p2pgo/rna/v1"), data)?;
+
         info!("Broadcast RNA message: {:?}", rna.rna_type);
         Ok(())
     }
 
     /// Create RNA from SGF file
-    pub fn create_sgf_rna(
-        &self,
-        sgf_content: String,
-        move_range: (usize, usize),
-    ) -> RNAMessage {
+    pub fn create_sgf_rna(&self, sgf_content: String, move_range: (usize, usize)) -> RNAMessage {
         RNAMessage {
             id: uuid::Uuid::new_v4().to_string(),
             rna_type: RNAType::SGFData {
@@ -181,7 +173,7 @@ impl RelayNode {
                     }
                     }
                 }
-                
+
                 // Handle RNA messages to broadcast
                 Some(rna) = self.rna_rx.recv() => {
                     self.broadcast_rna(rna).await?;
@@ -194,10 +186,11 @@ impl RelayNode {
         match event {
             libp2p::identify::Event::Received { peer_id, info } => {
                 debug!("Identified peer {}: {:?}", peer_id, info);
-                
+
                 // Add addresses to Kademlia
                 for addr in info.listen_addrs {
-                    self.swarm.behaviour_mut()
+                    self.swarm
+                        .behaviour_mut()
                         .kademlia
                         .add_address(&peer_id, addr);
                 }
@@ -208,17 +201,23 @@ impl RelayNode {
 
     async fn handle_gossipsub_event(&mut self, event: libp2p::gossipsub::Event) -> Result<()> {
         match event {
-            libp2p::gossipsub::Event::Message { propagation_source, message, .. } => {
+            libp2p::gossipsub::Event::Message {
+                propagation_source,
+                message,
+                ..
+            } => {
                 if message.topic == libp2p::gossipsub::IdentTopic::new("p2pgo/rna/v1").hash() {
                     match serde_cbor::from_slice::<RNAMessage>(&message.data) {
                         Ok(rna) => {
-                            info!("Received RNA from {}: {:?}", propagation_source, rna.rna_type);
-                            
+                            info!(
+                                "Received RNA from {}: {:?}",
+                                propagation_source, rna.rna_type
+                            );
+
                             // Update connection metrics
                             if let Some(metrics) = self.connections.get_mut(&propagation_source) {
-                                metrics.latency_ms = Some(
-                                    metrics.connected_at.elapsed().as_millis() as u64
-                                );
+                                metrics.latency_ms =
+                                    Some(metrics.connected_at.elapsed().as_millis() as u64);
                             }
                         }
                         Err(e) => {
@@ -237,15 +236,18 @@ impl RelayNode {
             libp2p::mdns::Event::Discovered(peers) => {
                 for (peer_id, addr) in peers {
                     info!("Discovered local peer {} at {}", peer_id, addr);
-                    
+
                     // Connect to discovered peer
                     if self.swarm.dial(addr.clone()).is_ok() {
-                        self.connections.insert(peer_id, ConnectionMetrics {
+                        self.connections.insert(
                             peer_id,
-                            connected_at: Instant::now(),
-                            connection_type: ConnectionType::Local,
-                            latency_ms: None,
-                        });
+                            ConnectionMetrics {
+                                peer_id,
+                                connected_at: Instant::now(),
+                                connection_type: ConnectionType::Local,
+                                latency_ms: None,
+                            },
+                        );
                     }
                 }
             }
@@ -279,12 +281,15 @@ impl RelayNode {
             peer_id, connection_type
         );
 
-        self.connections.insert(peer_id, ConnectionMetrics {
+        self.connections.insert(
             peer_id,
-            connected_at: Instant::now(),
-            connection_type,
-            latency_ms: None,
-        });
+            ConnectionMetrics {
+                peer_id,
+                connected_at: Instant::now(),
+                connection_type,
+                latency_ms: None,
+            },
+        );
     }
 
     fn handle_connection_closed(&mut self, peer_id: PeerId) {

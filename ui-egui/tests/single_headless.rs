@@ -4,16 +4,20 @@
 async fn single_headless_test() -> anyhow::Result<()> {
     #[cfg(feature = "headless")]
     {
-        use tokio::time::{timeout, Duration};
         use tokio::task;
-        
+        use tokio::time::{timeout, Duration};
+
         println!("Starting single headless test");
-        
-        let result = timeout(Duration::from_secs(5), task::spawn_blocking(|| {
-            println!("Running headless function");
-            p2pgo_ui_egui::headless()
-        })).await;
-        
+
+        let result = timeout(
+            Duration::from_secs(5),
+            task::spawn_blocking(|| {
+                println!("Running headless function");
+                p2pgo_ui_egui::headless()
+            }),
+        )
+        .await;
+
         match result {
             Ok(Ok(Ok(()))) => {
                 println!("Single headless instance completed successfully");
@@ -30,7 +34,7 @@ async fn single_headless_test() -> anyhow::Result<()> {
             }
         }
     }
-    
+
     #[cfg(not(feature = "headless"))]
     {
         println!("Skipping test - headless feature not enabled");

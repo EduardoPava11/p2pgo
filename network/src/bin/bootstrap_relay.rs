@@ -3,7 +3,7 @@ use clap::Parser;
 use std::path::PathBuf;
 use tracing_subscriber::EnvFilter;
 
-use p2pgo_network::{run_bootstrap_relay, RelayNode, BootstrapConfig};
+use p2pgo_network::{run_bootstrap_relay, BootstrapConfig, RelayNode};
 
 /// P2P Go Relay Node
 #[derive(Parser, Debug)]
@@ -12,19 +12,19 @@ struct Args {
     /// Port to listen on
     #[arg(short, long, default_value = "4001")]
     port: u16,
-    
+
     /// Run as bootstrap relay (first node in network)
     #[arg(long)]
     bootstrap: bool,
-    
+
     /// Connect to existing relay
     #[arg(long)]
     connect: Option<String>,
-    
+
     /// Data directory
     #[arg(long, default_value = "~/.p2pgo/relay")]
     data_dir: PathBuf,
-    
+
     /// Verbose logging
     #[arg(short, long)]
     verbose: bool,
@@ -33,7 +33,7 @@ struct Args {
 #[tokio::main]
 async fn main() -> Result<()> {
     let args = Args::parse();
-    
+
     // Initialize logging
     let filter = if args.verbose {
         EnvFilter::from_default_env()
@@ -44,13 +44,11 @@ async fn main() -> Result<()> {
             .add_directive("p2pgo_network=info".parse()?)
             .add_directive("libp2p=info".parse()?)
     };
-    
-    tracing_subscriber::fmt()
-        .with_env_filter(filter)
-        .init();
-    
+
+    tracing_subscriber::fmt().with_env_filter(filter).init();
+
     tracing::info!("Starting P2P Go Relay Node");
-    
+
     if args.bootstrap {
         // Run as bootstrap relay
         tracing::info!("Running as bootstrap relay on port {}", args.port);
@@ -68,20 +66,20 @@ async fn main() -> Result<()> {
         } else {
             BootstrapConfig::default()
         };
-        
+
         // Generate keypair
         let keypair = libp2p::identity::Keypair::generate_ed25519();
         let peer_id = libp2p::PeerId::from(keypair.public());
-        
+
         let mut relay = RelayNode::new(keypair)?;
         tracing::info!("Relay node started with peer_id: {}", relay.peer_id());
-        
+
         // Bootstrap if we have a config
         relay.bootstrap().await?;
-        
+
         // Handle events
         relay.handle_events().await?;
     }
-    
+
     Ok(())
 }

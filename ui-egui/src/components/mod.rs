@@ -5,6 +5,6 @@ pub mod game;
 pub mod network;
 
 // Re-export commonly used components
-pub use board::{BoardRenderer, BoardInteraction};
+pub use board::{BoardInteraction, BoardRenderer};
 pub use game::{GameControls, GameStatus};
 pub use network::{ConnectionStatus, PeerList};

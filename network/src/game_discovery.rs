@@ -102,11 +102,11 @@ impl GameDiscovery {
             peer_info: Arc::new(RwLock::new(HashMap::new())),
         }
     }
-    
+
     /// Start the discovery service
     pub async fn start(mut self) -> Result<()> {
         info!("Starting game discovery service");
-        
+
         // Start cleanup task
         let games = self.games.clone();
         let discovery_tx = self.discovery_tx.clone();
@@ -117,17 +117,17 @@ impl GameDiscovery {
                 cleanup_stale_games(&games, &discovery_tx).await;
             }
         });
-        
+
         // Process P2P events
         while let Some(event) = self.event_rx.recv().await {
             if let Err(e) = self.handle_p2p_event(event).await {
                 warn!("Error handling P2P event: {}", e);
             }
         }
-        
+
         Ok(())
     }
-    
+
     /// Handle P2P events
     async fn handle_p2p_event(&mut self, event: P2PEvent) -> Result<()> {
         match event {
@@ -154,23 +154,23 @@ impl GameDiscovery {
         }
         Ok(())
     }
-    
+
     /// Handle game announcement via gossip
     async fn handle_game_announcement(&mut self, data: Vec<u8>) -> Result<()> {
         match serde_json::from_slice::<GameAnnouncement>(&data) {
             Ok(announcement) => {
                 debug!("Received game announcement: {}", announcement.game_id);
-                
+
                 // Determine discovery source
                 let source = if announcement.relay_peer.is_some() {
                     DiscoverySource::Relay(announcement.relay_peer.unwrap())
                 } else {
                     DiscoverySource::DHT
                 };
-                
+
                 // Estimate connection quality
                 let quality = self.estimate_connection_quality(&announcement.host_peer).await;
-                
+
                 let game = DiscoveredGame {
                     id: announcement.game_id.clone(),
                     host_peer: announcement.host_peer,
@@ -179,19 +179,19 @@ impl GameDiscovery {
                     connection_quality: quality,
                     last_seen: std::time::Instant::now(),
                 };
-                
+
                 // Store game
                 let mut games = self.games.write().await;
                 let is_new = !games.contains_key(&game.id);
                 games.insert(game.id.clone(), game.clone());
-                
+
                 // Send event
                 if is_new {
                     self.discovery_tx.send(DiscoveryEvent::GameDiscovered(game))?;
                 } else {
                     self.discovery_tx.send(DiscoveryEvent::GameUpdated(game))?;
                 }
-                
+
                 // Update stats
                 self.send_discovery_stats().await?;
             }
@@ -201,24 +201,24 @@ impl GameDiscovery {
         }
         Ok(())
     }
-    
+
     /// Handle DHT query results
     async fn handle_dht_results(&mut self, providers: Vec<PeerId>) -> Result<()> {
         debug!("DHT query returned {} providers", providers.len());
-        
+
         for peer_id in providers {
             // Query each provider for their games
             // This would trigger additional P2P communication
             info!("Found game provider: {}", peer_id);
         }
-        
+
         Ok(())
     }
-    
+
     /// Handle peer connection
     async fn handle_peer_connected(&mut self, peer_id: PeerId) -> Result<()> {
         debug!("Peer connected: {}", peer_id);
-        
+
         // Update peer info
         let mut peer_info = self.peer_info.write().await;
         peer_info.insert(peer_id, PeerInfo {
@@ -227,55 +227,55 @@ impl GameDiscovery {
             supports_relay: false,
             last_ping: None,
         });
-        
+
         // Check if this peer has any games
         // In a real implementation, we'd query the peer
-        
+
         Ok(())
     }
-    
+
     /// Handle peer disconnection
     async fn handle_peer_disconnected(&mut self, peer_id: PeerId) -> Result<()> {
         debug!("Peer disconnected: {}", peer_id);
-        
+
         // Remove peer info
         self.peer_info.write().await.remove(&peer_id);
-        
+
         // Remove any games hosted by this peer
         let mut games = self.games.write().await;
         let removed: Vec<_> = games.iter()
             .filter(|(_, game)| game.host_peer == peer_id)
             .map(|(id, _)| id.clone())
             .collect();
-        
+
         for id in removed {
             games.remove(&id);
             self.discovery_tx.send(DiscoveryEvent::GameRemoved(id))?;
         }
-        
+
         self.send_discovery_stats().await?;
-        
+
         Ok(())
     }
-    
+
     /// Handle relay discovery
     async fn handle_relay_discovered(&mut self, peer_id: PeerId, addresses: Vec<libp2p::Multiaddr>) -> Result<()> {
         debug!("Relay discovered: {} with {} addresses", peer_id, addresses.len());
-        
+
         // Update peer info
         let mut peer_info = self.peer_info.write().await;
         if let Some(info) = peer_info.get_mut(&peer_id) {
             info.supports_relay = true;
             info.addresses = addresses;
         }
-        
+
         Ok(())
     }
-    
+
     /// Estimate connection quality to a peer
     async fn estimate_connection_quality(&self, peer_id: &PeerId) -> ConnectionQuality {
         let peer_info = self.peer_info.read().await;
-        
+
         if let Some(info) = peer_info.get(peer_id) {
             ConnectionQuality {
                 direct_possible: !info.addresses.is_empty(),
@@ -291,33 +291,33 @@ impl GameDiscovery {
             }
         }
     }
-    
+
     /// Send discovery statistics
     async fn send_discovery_stats(&self) -> Result<()> {
         let games = self.games.read().await;
-        
+
         let local_games = games.values()
             .filter(|g| g.discovery_source == DiscoverySource::Local)
             .count();
-            
+
         let relay_games = games.values()
             .filter(|g| matches!(g.discovery_source, DiscoverySource::Relay(_)))
             .count();
-        
+
         self.discovery_tx.send(DiscoveryEvent::DiscoveryStats {
             total_games: games.len(),
             local_games,
             relay_games,
         })?;
-        
+
         Ok(())
     }
-    
+
     /// Get all discovered games
     pub async fn get_games(&self) -> Vec<DiscoveredGame> {
         self.games.read().await.values().cloned().collect()
     }
-    
+
     /// Get games filtered by board size
     pub async fn get_games_by_size(&self, board_size: u8) -> Vec<DiscoveredGame> {
         self.games.read().await
@@ -326,7 +326,7 @@ impl GameDiscovery {
             .cloned()
             .collect()
     }
-    
+
     /// Manually add a game (e.g., from direct invite)
     pub async fn add_game_direct(&self, peer_id: PeerId, game_id: String, metadata: GameMetadata) -> Result<()> {
         let game = DiscoveredGame {
@@ -341,10 +341,10 @@ impl GameDiscovery {
             },
             last_seen: std::time::Instant::now(),
         };
-        
+
         self.games.write().await.insert(game_id, game.clone());
         self.discovery_tx.send(DiscoveryEvent::GameDiscovered(game))?;
-        
+
         Ok(())
     }
 }
@@ -357,12 +357,12 @@ async fn cleanup_stale_games(
     let mut games = games.write().await;
     let now = std::time::Instant::now();
     let stale_timeout = Duration::from_secs(120); // 2 minutes
-    
+
     let stale: Vec<_> = games.iter()
         .filter(|(_, game)| now.duration_since(game.last_seen) > stale_timeout)
         .map(|(id, _)| id.clone())
         .collect();
-    
+
     for id in stale {
         games.remove(&id);
         let _ = discovery_tx.send(DiscoveryEvent::GameRemoved(id));

@@ -1,15 +1,15 @@
 //! Simplified UI for building DMG
 
 use eframe::egui;
-use p2pgo_core::{GameState, Move, Color, Coord};
-use p2pgo_neural::{DualNeuralNet, config::NeuralConfig};
+use p2pgo_core::{Color, Coord, GameState, Move};
+use p2pgo_neural::{config::NeuralConfig, DualNeuralNet};
 
 fn main() -> Result<(), eframe::Error> {
     let options = eframe::NativeOptions {
         initial_window_size: Some(egui::vec2(1200.0, 900.0)),
         ..Default::default()
     };
-    
+
     eframe::run_native(
         "P2P Go",
         options,
@@ -45,7 +45,7 @@ impl eframe::App for P2PGoApp {
         if ctx.input(|i| i.key_pressed(egui::Key::H)) {
             self.show_heat_map = !self.show_heat_map;
         }
-        
+
         egui::CentralPanel::default().show(ctx, |ui| {
             // Header
             ui.horizontal(|ui| {
@@ -65,9 +65,9 @@ impl eframe::App for P2PGoApp {
                 }
                 ui.label("(Press H)");
             });
-            
+
             ui.separator();
-            
+
             // Main content
             ui.horizontal(|ui| {
                 // Left panel - Board
@@ -75,7 +75,7 @@ impl eframe::App for P2PGoApp {
                     ui.label("Go Board");
                     self.render_board(ui);
                 });
-                
+
                 // Right panel - Neural config or info
                 ui.group(|ui| {
                     if self.config_step < 10 {
@@ -92,18 +92,15 @@ impl eframe::App for P2PGoApp {
 impl P2PGoApp {
     fn render_board(&self, ui: &mut egui::Ui) {
         let size = 400.0;
-        let (response, painter) = ui.allocate_painter(
-            egui::vec2(size, size),
-            egui::Sense::click(),
-        );
-        
+        let (response, painter) = ui.allocate_painter(egui::vec2(size, size), egui::Sense::click());
+
         let rect = response.rect;
         painter.rect_filled(rect, 0.0, egui::Color32::from_rgb(220, 179, 92));
-        
+
         // Grid
         let grid_size = 9;
         let cell_size = size / grid_size as f32;
-        
+
         for i in 0..grid_size {
             let offset = (i as f32 + 0.5) * cell_size;
             // Vertical lines
@@ -123,7 +120,7 @@ impl P2PGoApp {
                 egui::Stroke::new(1.0, egui::Color32::BLACK),
             );
         }
-        
+
         // Heat map overlay if enabled
         if self.show_heat_map {
             let heat_map = self.neural_net.get_heat_map(&self.game_state);
@@ -142,7 +139,7 @@ impl P2PGoApp {
                 }
             }
         }
-        
+
         // Stones
         for y in 0..grid_size {
             for x in 0..grid_size {
@@ -158,18 +155,21 @@ impl P2PGoApp {
                     };
                     painter.circle_filled(center, cell_size * 0.4, stone_color);
                     if color == Color::White {
-                        painter.circle_stroke(center, cell_size * 0.4, 
-                            egui::Stroke::new(1.0, egui::Color32::BLACK));
+                        painter.circle_stroke(
+                            center,
+                            cell_size * 0.4,
+                            egui::Stroke::new(1.0, egui::Color32::BLACK),
+                        );
                     }
                 }
             }
         }
     }
-    
+
     fn render_config_wizard(&mut self, ui: &mut egui::Ui) {
         ui.heading("🧠 Neural Network Configuration");
         ui.separator();
-        
+
         let questions = [
             ("Aggression", "1=Defensive, 10=Aggressive"),
             ("Territory Focus", "1=Fighting, 10=Territory"),
@@ -182,18 +182,21 @@ impl P2PGoApp {
             ("Learning Rate", "1=Slow, 10=Fast"),
             ("Creativity", "1=Standard, 10=Creative"),
         ];
-        
+
         if self.config_step < questions.len() {
             let (name, desc) = questions[self.config_step];
             ui.label(format!("Question {} of 10", self.config_step + 1));
             ui.separator();
-            
+
             ui.label(egui::RichText::new(name).size(20.0).strong());
             ui.label(desc);
             ui.add_space(20.0);
-            
-            ui.add(egui::Slider::new(&mut self.config_values[self.config_step], 1..=10));
-            
+
+            ui.add(egui::Slider::new(
+                &mut self.config_values[self.config_step],
+                1..=10,
+            ));
+
             ui.add_space(20.0);
             if ui.button("Next →").clicked() {
                 self.config_step += 1;
@@ -215,22 +218,28 @@ impl P2PGoApp {
             }
         }
     }
-    
+
     fn render_game_info(&self, ui: &mut egui::Ui) {
         ui.heading("Game Information");
         ui.separator();
-        
+
         ui.label("Neural Network Status:");
-        ui.label(format!("✅ Configured (Aggression: {})", self.neural_config.aggression));
-        ui.label(format!("Heat Map: {}", if self.show_heat_map { "ON" } else { "OFF" }));
-        
+        ui.label(format!(
+            "✅ Configured (Aggression: {})",
+            self.neural_config.aggression
+        ));
+        ui.label(format!(
+            "Heat Map: {}",
+            if self.show_heat_map { "ON" } else { "OFF" }
+        ));
+
         ui.separator();
         ui.label("Instructions:");
         ui.label("• Press H to toggle heat map");
         ui.label("• Red areas show suggested moves");
         ui.label("• Upload SGF files to train");
         ui.label("• Connect with friend via relay");
-        
+
         ui.separator();
         ui.label("Ready for testing!");
     }

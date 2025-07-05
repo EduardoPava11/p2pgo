@@ -21,7 +21,7 @@ impl CrashLogger {
     /// Create a new crash logger
     pub fn new() -> Result<Self> {
         let log_dir = Self::get_log_directory()?;
-        
+
         Ok(Self {
             log_dir,
             current_size: AtomicU64::new(0),
@@ -29,7 +29,7 @@ impl CrashLogger {
             mutex: Mutex::new(()),
         })
     }
-    
+
     /// Get the macOS Logs directory
     fn get_log_directory() -> Result<PathBuf> {
         #[cfg(target_os = "macos")]
@@ -42,7 +42,7 @@ impl CrashLogger {
             path.push("p2pgo");
             Ok(path)
         }
-        
+
         #[cfg(not(target_os = "macos"))]
         {
             // Fallback for other platforms
@@ -51,67 +51,67 @@ impl CrashLogger {
             Ok(path)
         }
     }
-    
+
     /// Initialize the logger and calculate current size
     pub async fn init(&self) -> Result<()> {
         // Ensure log directory exists
         fs::create_dir_all(&self.log_dir).await?;
-        
+
         // Calculate current log size
         let mut total_size = 0u64;
         let mut entries = fs::read_dir(&self.log_dir).await?;
-        
+
         while let Some(entry) = entries.next_entry().await? {
             if let Ok(metadata) = entry.metadata().await {
                 total_size += metadata.len();
             }
         }
-        
+
         self.current_size.store(total_size, Ordering::Relaxed);
         info!("Crash logger initialized. Current log size: {} bytes", total_size);
-        
+
         Ok(())
     }
-    
+
     /// Log a crash with rotation check
     pub async fn log_crash(&self, error: &str, context: &str) -> Result<()> {
         let _guard = self.mutex.lock().await;
-        
+
         let timestamp = chrono::Utc::now().format("%Y%m%d_%H%M%S").to_string();
         let filename = format!("crash_{}.log", timestamp);
         let file_path = self.log_dir.join(filename);
-        
+
         let log_entry = format!(
             "[{}] CRASH: {}\nContext: {}\n\n",
             chrono::Utc::now().format("%Y-%m-%d %H:%M:%S UTC"),
             error,
             context
         );
-        
+
         // Write the crash log
         fs::write(&file_path, log_entry.as_bytes()).await?;
-        
+
         // Update size tracking
         let new_size = log_entry.len() as u64;
         let total_size = self.current_size.fetch_add(new_size, Ordering::Relaxed) + new_size;
-        
+
         info!("Crash logged to {:?}. Total log size: {} bytes", file_path, total_size);
-        
+
         // Check if rotation is needed
         if total_size > self.max_size {
             self.rotate_logs().await?;
         }
-        
+
         Ok(())
     }
-    
+
     /// Rotate logs when they exceed 1GB
     async fn rotate_logs(&self) -> Result<()> {
         info!("Starting log rotation...");
-        
+
         let mut entries = fs::read_dir(&self.log_dir).await?;
         let mut log_files = Vec::new();
-        
+
         // Collect all log files with their metadata
         while let Some(entry) = entries.next_entry().await? {
             let path = entry.path();
@@ -121,42 +121,42 @@ impl CrashLogger {
                 }
             }
         }
-        
+
         // Sort by modification time (oldest first)
         log_files.sort_by_key(|(_, time)| *time);
-        
+
         // Remove oldest 50% of files
         let remove_count = log_files.len() / 2;
         let mut removed_size = 0u64;
-        
+
         for (path, _) in log_files.iter().take(remove_count) {
             if let Ok(metadata) = fs::metadata(path).await {
                 removed_size += metadata.len();
             }
-            
+
             if let Err(e) = fs::remove_file(path).await {
                 tracing::warn!("Failed to remove old log file {:?}: {}", path, e);
             } else {
                 tracing::debug!("Removed old log file: {:?}", path);
             }
         }
-        
+
         // Update size tracking
         self.current_size.fetch_sub(removed_size, Ordering::Relaxed);
-        
+
         info!(
             "Log rotation completed. Removed {} files, {} bytes",
             remove_count, removed_size
         );
-        
+
         Ok(())
     }
-    
+
     /// Get current log directory size
     pub fn get_current_size(&self) -> u64 {
         self.current_size.load(Ordering::Relaxed)
     }
-    
+
     /// Get maximum log size before rotation
     pub fn get_max_size(&self) -> u64 {
         self.max_size
@@ -171,9 +171,9 @@ static CRASH_LOGGER: OnceLock<CrashLogger> = OnceLock::new();
 pub async fn init_crash_logger() -> Result<()> {
     let logger = CrashLogger::new()?;
     logger.init().await?;
-    
+
     CRASH_LOGGER.set(logger).map_err(|_| anyhow::anyhow!("Crash logger already initialized"))?;
-    
+
     Ok(())
 }
 

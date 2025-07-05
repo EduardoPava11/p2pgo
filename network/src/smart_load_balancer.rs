@@ -1,13 +1,13 @@
 //! Smart load balancer with real-time metrics and health integration
 
-use anyhow::{Result, anyhow};
+use anyhow::{anyhow, Result};
 use libp2p::PeerId;
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 use std::time::{Duration, Instant};
 use tokio::time::interval;
-use tracing::{info, debug};
+use tracing::{debug, info};
 
 use crate::health::HealthManager;
 
@@ -172,10 +172,7 @@ impl Default for PerformanceHistory {
 
 impl SmartLoadBalancer {
     /// Create a new smart load balancer
-    pub fn new(
-        algorithm: LoadBalancingAlgorithm,
-        health_checker: Arc<HealthManager>,
-    ) -> Self {
+    pub fn new(algorithm: LoadBalancingAlgorithm, health_checker: Arc<HealthManager>) -> Self {
         Self {
             relay_metrics: Arc::new(RwLock::new(HashMap::new())),
             algorithm,
@@ -198,8 +195,7 @@ impl SmartLoadBalancer {
             .iter()
             .filter(|(_, metrics)| {
                 // Consider relay healthy if it's recently updated and has reasonable load
-                metrics.last_updated.elapsed() < Duration::from_secs(60) &&
-                metrics.load_score < 0.9
+                metrics.last_updated.elapsed() < Duration::from_secs(60) && metrics.load_score < 0.9
             })
             .map(|(peer_id, _)| *peer_id)
             .collect();
@@ -217,7 +213,10 @@ impl SmartLoadBalancer {
                         peer_id: affinity_peer,
                         reason: SelectionReason::SessionAffinity,
                         confidence: 0.9,
-                        alternatives: healthy_relays.into_iter().filter(|p| *p != affinity_peer).collect(),
+                        alternatives: healthy_relays
+                            .into_iter()
+                            .filter(|p| *p != affinity_peer)
+                            .collect(),
                     });
                 }
             }
@@ -255,37 +254,48 @@ impl SmartLoadBalancer {
             peer_id: selected,
             reason,
             confidence,
-            alternatives: candidates.into_iter().skip(1).map(|(peer, _)| peer).collect(),
+            alternatives: candidates
+                .into_iter()
+                .skip(1)
+                .map(|(peer, _)| peer)
+                .collect(),
         })
     }
 
     /// Calculate selection score for a relay
-    fn calculate_selection_score(&self, metrics: &RelayMetrics, client_location: Option<&GeoLocation>) -> f32 {
+    fn calculate_selection_score(
+        &self,
+        metrics: &RelayMetrics,
+        client_location: Option<&GeoLocation>,
+    ) -> f32 {
         match self.algorithm {
             LoadBalancingAlgorithm::WeightedRoundRobin => {
                 // Score based on connection capacity
-                let capacity_ratio = metrics.active_connections as f32 / metrics.max_connections as f32;
+                let capacity_ratio =
+                    metrics.active_connections as f32 / metrics.max_connections as f32;
                 capacity_ratio + (metrics.cpu_usage * 0.3) + (metrics.load_score * 0.2)
             }
-            LoadBalancingAlgorithm::LeastConnections => {
-                metrics.active_connections as f32
-            }
+            LoadBalancingAlgorithm::LeastConnections => metrics.active_connections as f32,
             LoadBalancingAlgorithm::CapacityAware => {
                 let cpu_score = metrics.cpu_usage;
-                let memory_score = (metrics.memory_usage_bytes as f32) / (metrics.max_memory_bytes as f32);
-                let bandwidth_score = (metrics.bandwidth_usage_bps as f32) / (metrics.max_bandwidth_bps as f32);
-                let connection_score = (metrics.active_connections as f32) / (metrics.max_connections as f32);
-                
+                let memory_score =
+                    (metrics.memory_usage_bytes as f32) / (metrics.max_memory_bytes as f32);
+                let bandwidth_score =
+                    (metrics.bandwidth_usage_bps as f32) / (metrics.max_bandwidth_bps as f32);
+                let connection_score =
+                    (metrics.active_connections as f32) / (metrics.max_connections as f32);
+
                 (cpu_score + memory_score + bandwidth_score + connection_score) / 4.0
             }
             LoadBalancingAlgorithm::GeographicLatency => {
                 let mut score = metrics.avg_latency_ms / 100.0; // Normalize latency
-                
+
                 if let Some(client_loc) = client_location {
                     let distance = self.calculate_distance(&metrics.location, client_loc);
-                    score += (distance / 1000.0) as f32 * self.geo_config.geo_weight; // Distance weight
+                    score += (distance / 1000.0) as f32 * self.geo_config.geo_weight;
+                    // Distance weight
                 }
-                
+
                 score
             }
             LoadBalancingAlgorithm::Adaptive => {
@@ -295,20 +305,24 @@ impl SmartLoadBalancer {
     }
 
     /// Calculate adaptive score using performance history
-    fn calculate_adaptive_score(&self, metrics: &RelayMetrics, client_location: Option<&GeoLocation>) -> f32 {
+    fn calculate_adaptive_score(
+        &self,
+        metrics: &RelayMetrics,
+        client_location: Option<&GeoLocation>,
+    ) -> f32 {
         let history = self.performance_history.read().unwrap();
-        
+
         let base_score = self.calculate_selection_score_for_algorithm(
-            metrics, 
-            client_location, 
-            LoadBalancingAlgorithm::CapacityAware
+            metrics,
+            client_location,
+            LoadBalancingAlgorithm::CapacityAware,
         );
 
         if let Some(perf_history) = history.get(&metrics.peer_id) {
             // Adjust score based on historical performance
             let success_adjustment = 1.0 - perf_history.recent_success_rate();
             let latency_adjustment = perf_history.recent_avg_latency() / 100.0;
-            
+
             base_score + (success_adjustment * 0.3) + (latency_adjustment * 0.2)
         } else {
             // No history, use slightly higher score to encourage exploration
@@ -318,10 +332,10 @@ impl SmartLoadBalancer {
 
     /// Calculate score for a specific algorithm
     fn calculate_selection_score_for_algorithm(
-        &self, 
-        metrics: &RelayMetrics, 
+        &self,
+        metrics: &RelayMetrics,
         client_location: Option<&GeoLocation>,
-        algorithm: LoadBalancingAlgorithm
+        algorithm: LoadBalancingAlgorithm,
     ) -> f32 {
         let _original_algorithm = self.algorithm;
         let temp_balancer = self.clone_with_algorithm(algorithm);
@@ -356,9 +370,9 @@ impl SmartLoadBalancer {
     pub fn record_connection_attempt(&self, peer_id: PeerId, attempt: ConnectionAttempt) {
         let mut history = self.performance_history.write().unwrap();
         let perf_history = history.entry(peer_id).or_default();
-        
+
         perf_history.recent_attempts.push(attempt.clone());
-        
+
         // Keep only recent attempts (last 100)
         if perf_history.recent_attempts.len() > 100 {
             perf_history.recent_attempts.remove(0);
@@ -366,27 +380,42 @@ impl SmartLoadBalancer {
 
         // Update success rate history
         let recent_success_rate = perf_history.recent_success_rate();
-        perf_history.success_rate_history.push((attempt.timestamp, recent_success_rate));
-        
+        perf_history
+            .success_rate_history
+            .push((attempt.timestamp, recent_success_rate));
+
         // Update latency history if successful
         if let Some(latency) = attempt.latency_ms {
-            perf_history.latency_history.push((attempt.timestamp, latency));
+            perf_history
+                .latency_history
+                .push((attempt.timestamp, latency));
         }
 
         // Cleanup old history (keep last 24 hours)
         let cutoff = Instant::now() - Duration::from_secs(24 * 3600);
-        perf_history.success_rate_history.retain(|(timestamp, _)| *timestamp > cutoff);
-        perf_history.latency_history.retain(|(timestamp, _)| *timestamp > cutoff);
+        perf_history
+            .success_rate_history
+            .retain(|(timestamp, _)| *timestamp > cutoff);
+        perf_history
+            .latency_history
+            .retain(|(timestamp, _)| *timestamp > cutoff);
     }
 
     /// Get session affinity mapping
     fn get_session_affinity(&self, session_id: &str) -> Option<PeerId> {
-        self.session_affinity.read().unwrap().get(session_id).copied()
+        self.session_affinity
+            .read()
+            .unwrap()
+            .get(session_id)
+            .copied()
     }
 
     /// Set session affinity mapping
     fn set_session_affinity(&self, session_id: String, peer_id: PeerId) {
-        self.session_affinity.write().unwrap().insert(session_id, peer_id);
+        self.session_affinity
+            .write()
+            .unwrap()
+            .insert(session_id, peer_id);
     }
 
     /// Calculate geographic distance between two locations (Haversine formula)
@@ -396,8 +425,8 @@ impl SmartLoadBalancer {
         let delta_lat = (loc2.lat - loc1.lat).to_radians();
         let delta_lng = (loc2.lng - loc1.lng).to_radians();
 
-        let a = (delta_lat / 2.0).sin().powi(2) +
-            lat1_rad.cos() * lat2_rad.cos() * (delta_lng / 2.0).sin().powi(2);
+        let a = (delta_lat / 2.0).sin().powi(2)
+            + lat1_rad.cos() * lat2_rad.cos() * (delta_lng / 2.0).sin().powi(2);
         let c = 2.0 * a.sqrt().atan2((1.0 - a).sqrt());
 
         6371.0 * c // Earth's radius in kilometers
@@ -405,9 +434,9 @@ impl SmartLoadBalancer {
 
     /// Determine the reason for selection
     fn determine_selection_reason(
-        &self, 
-        _selected: &(PeerId, f32), 
-        client_location: Option<&GeoLocation>
+        &self,
+        _selected: &(PeerId, f32),
+        client_location: Option<&GeoLocation>,
     ) -> SelectionReason {
         match self.algorithm {
             LoadBalancingAlgorithm::WeightedRoundRobin => SelectionReason::LowestLoad,
@@ -432,7 +461,7 @@ impl SmartLoadBalancer {
 
         let best_score = candidates[0].1;
         let second_best_score = candidates[1].1;
-        
+
         // Higher confidence when there's a clear winner
         let score_diff = second_best_score - best_score;
         (score_diff * 2.0).min(1.0).max(0.3)
@@ -465,13 +494,13 @@ impl SmartLoadBalancer {
     pub async fn start_metrics_collection(&self) -> Result<()> {
         let metrics = self.relay_metrics.clone();
         let _health_checker = self.health_checker.clone();
-        
+
         tokio::spawn(async move {
             let mut interval = interval(Duration::from_secs(10));
-            
+
             loop {
                 interval.tick().await;
-                
+
                 // Get all relay peer IDs from metrics
                 let healthy_relays: Vec<PeerId> = {
                     let metrics_guard = metrics.read().unwrap();
@@ -485,11 +514,11 @@ impl SmartLoadBalancer {
                         relay_metrics.last_updated = Instant::now();
                     }
                 }
-                
+
                 // Remove stale metrics (older than 5 minutes)
                 let cutoff = Instant::now() - Duration::from_secs(300);
                 metrics_guard.retain(|_, metrics| metrics.last_updated > cutoff);
-                
+
                 debug!("Updated metrics for {} relays", metrics_guard.len());
             }
         });
@@ -507,13 +536,15 @@ impl SmartLoadBalancer {
 
         let cpu_score = metrics.cpu_usage;
         let memory_score = (metrics.memory_usage_bytes as f32) / (metrics.max_memory_bytes as f32);
-        let bandwidth_score = (metrics.bandwidth_usage_bps as f32) / (metrics.max_bandwidth_bps as f32);
-        let connection_score = (metrics.active_connections as f32) / (metrics.max_connections as f32);
+        let bandwidth_score =
+            (metrics.bandwidth_usage_bps as f32) / (metrics.max_bandwidth_bps as f32);
+        let connection_score =
+            (metrics.active_connections as f32) / (metrics.max_connections as f32);
 
-        (cpu_score * cpu_weight) +
-        (memory_score * memory_weight) +
-        (bandwidth_score * bandwidth_weight) +
-        (connection_score * connection_weight)
+        (cpu_score * cpu_weight)
+            + (memory_score * memory_weight)
+            + (bandwidth_score * bandwidth_weight)
+            + (connection_score * connection_weight)
     }
 }
 
@@ -531,7 +562,8 @@ impl PerformanceHistory {
 
     /// Calculate recent average latency
     pub fn recent_avg_latency(&self) -> f32 {
-        let latencies: Vec<f32> = self.recent_attempts
+        let latencies: Vec<f32> = self
+            .recent_attempts
             .iter()
             .filter_map(|a| a.latency_ms)
             .collect();

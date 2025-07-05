@@ -40,10 +40,7 @@ impl Bootstrap {
     }
 
     /// Execute bootstrap process
-    pub async fn bootstrap(
-        &self,
-        swarm: &mut Swarm<P2PGoBehaviour>,
-    ) -> Result<BootstrapResult> {
+    pub async fn bootstrap(&self, swarm: &mut Swarm<P2PGoBehaviour>) -> Result<BootstrapResult> {
         info!("Starting bootstrap process...");
 
         let discovered_peers = Vec::new();
@@ -71,17 +68,17 @@ impl Bootstrap {
             // Try to find a relay server
             // For MVP, we'll attempt to use any discovered peer as relay
             tokio::time::sleep(Duration::from_secs(2)).await; // Wait for connections
-            
+
             let connected_peers: Vec<PeerId> = swarm.connected_peers().cloned().collect();
             if let Some(&relay_peer) = connected_peers.first() {
                 info!("Attempting to use {} as relay", relay_peer);
                 relay_server = Some(relay_peer);
-                
+
                 // Listen on relay
                 let relay_addr = Multiaddr::empty()
                     .with(libp2p::multiaddr::Protocol::P2p(relay_peer))
                     .with(libp2p::multiaddr::Protocol::P2pCircuit);
-                
+
                 match swarm.listen_on(relay_addr.clone()) {
                     Ok(_) => {
                         info!("Listening on relay circuit: {}", relay_addr);
@@ -112,25 +109,23 @@ impl Bootstrap {
         peer_addr: Multiaddr,
     ) -> Result<()> {
         info!("Quick connect to: {}", peer_addr);
-        
+
         // Direct dial
-        swarm.dial(peer_addr.clone())
+        swarm
+            .dial(peer_addr.clone())
             .context("Failed to dial peer")?;
-        
+
         // Subscribe to game topics
-        let topics = vec![
-            "p2pgo/games/v1",
-            "p2pgo/rna/v1",
-            "p2pgo/lobby/v1",
-        ];
-        
+        let topics = vec!["p2pgo/games/v1", "p2pgo/rna/v1", "p2pgo/lobby/v1"];
+
         for topic in topics {
-            swarm.behaviour_mut()
+            swarm
+                .behaviour_mut()
                 .gossipsub
                 .subscribe(&libp2p::gossipsub::IdentTopic::new(topic))
                 .context("Failed to subscribe to topic")?;
         }
-        
+
         Ok(())
     }
 }

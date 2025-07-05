@@ -29,32 +29,32 @@ impl FrameTimer {
             target_frame_time: Duration::from_secs_f32(1.0 / target_fps),
         }
     }
-    
+
     fn tick(&mut self) -> f32 {
         let now = Instant::now();
         let delta = now - self.last_frame;
         self.last_frame = now;
-        
+
         self.frame_times.push_back(delta);
         if self.frame_times.len() > 60 {
             self.frame_times.pop_front();
         }
-        
+
         delta.as_secs_f32()
     }
-    
+
     fn average_fps(&self) -> f32 {
         if self.frame_times.is_empty() {
             return 0.0;
         }
-        
+
         let avg_time = self.frame_times.iter()
             .map(|d| d.as_secs_f32())
             .sum::<f32>() / self.frame_times.len() as f32;
-        
+
         1.0 / avg_time
     }
-    
+
     fn should_render(&self) -> bool {
         self.last_frame.elapsed() >= self.target_frame_time
     }
@@ -94,7 +94,7 @@ impl WeightFlowAnimation {
         let layer_positions: Vec<f32> = (0..num_layers)
             .map(|i| i as f32 / (num_layers - 1) as f32)
             .collect();
-        
+
         Self {
             particles: Vec::new(),
             layer_positions,
@@ -102,15 +102,15 @@ impl WeightFlowAnimation {
             duration,
         }
     }
-    
-    pub fn add_flow(&mut self, from_layer: usize, from_neuron: usize, 
+
+    pub fn add_flow(&mut self, from_layer: usize, from_neuron: usize,
                     to_layer: usize, to_neuron: usize, strength: f32) {
         let color = if strength > 0.0 {
             Color32::from_rgba_unmultiplied(100, 200, 255, (strength * 255.0) as u8)
         } else {
             Color32::from_rgba_unmultiplied(255, 100, 100, (strength.abs() * 255.0) as u8)
         };
-        
+
         self.particles.push(FlowParticle {
             start_layer: from_layer,
             end_layer: to_layer,
@@ -126,15 +126,15 @@ impl WeightFlowAnimation {
 impl Animation for WeightFlowAnimation {
     fn update(&mut self, delta_time: f32) {
         self.progress += delta_time / self.duration;
-        
+
         // Update particles
         for particle in &mut self.particles {
             particle.progress = (particle.progress + delta_time * 2.0).min(1.0);
         }
-        
+
         // Remove completed particles
         self.particles.retain(|p| p.progress < 1.0);
-        
+
         // Spawn new particles periodically
         if self.progress < 0.8 && self.particles.len() < 50 {
             // Add random flows
@@ -143,28 +143,28 @@ impl Animation for WeightFlowAnimation {
             self.add_flow(from_layer, rand() % 10, to_layer, rand() % 10, rand_f32());
         }
     }
-    
+
     fn render(&self, painter: &Painter, rect: Rect) {
         for particle in &self.particles {
             let start_x = rect.left() + self.layer_positions[particle.start_layer] * rect.width();
             let end_x = rect.left() + self.layer_positions[particle.end_layer] * rect.width();
-            
+
             let layer_height = rect.height() / 10.0;
             let start_y = rect.top() + particle.start_neuron as f32 * layer_height;
             let end_y = rect.top() + particle.end_neuron as f32 * layer_height;
-            
+
             let x = start_x + (end_x - start_x) * particle.progress;
             let y = start_y + (end_y - start_y) * particle.progress;
-            
+
             painter.circle_filled(Pos2::new(x, y), particle.size, particle.color);
-            
+
             // Trail effect
             for i in 1..5 {
                 let trail_progress = (particle.progress - i as f32 * 0.05).max(0.0);
                 let trail_x = start_x + (end_x - start_x) * trail_progress;
                 let trail_y = start_y + (end_y - start_y) * trail_progress;
                 let trail_alpha = ((5 - i) as f32 / 5.0 * 0.5) * (1.0 - particle.progress);
-                
+
                 painter.circle_filled(
                     Pos2::new(trail_x, trail_y),
                     particle.size * 0.7,
@@ -178,7 +178,7 @@ impl Animation for WeightFlowAnimation {
             }
         }
     }
-    
+
     fn is_complete(&self) -> bool {
         self.progress >= 1.0 && self.particles.is_empty()
     }
@@ -215,14 +215,14 @@ impl ActivationHeatmapAnimation {
             },
         }
     }
-    
+
     pub fn set_activations(&mut self, new_activations: Vec<Vec<f32>>) {
         self.target_activations = new_activations;
     }
-    
+
     fn value_to_color(&self, value: f32) -> Color32 {
         let v = value.clamp(0.0, 1.0);
-        
+
         if v < 0.5 {
             // Cold to warm
             let t = v * 2.0;
@@ -255,11 +255,11 @@ impl Animation for ActivationHeatmapAnimation {
             }
         }
     }
-    
+
     fn render(&self, painter: &Painter, rect: Rect) {
         let cell_width = rect.width() / self.activations[0].len() as f32;
         let cell_height = rect.height() / self.activations.len() as f32;
-        
+
         for (y, row) in self.activations.iter().enumerate() {
             for (x, &value) in row.iter().enumerate() {
                 let cell_rect = Rect::from_min_size(
@@ -269,13 +269,13 @@ impl Animation for ActivationHeatmapAnimation {
                     ),
                     Vec2::new(cell_width, cell_height),
                 );
-                
+
                 let color = self.value_to_color(value);
                 painter.rect_filled(cell_rect, 0.0, color);
             }
         }
     }
-    
+
     fn is_complete(&self) -> bool {
         false // Continuous animation
     }
@@ -308,7 +308,7 @@ impl NeuralAnimationSystem {
             recorder: None,
         }
     }
-    
+
     /// Start recording animation frames
     pub fn start_recording(&mut self, max_frames: usize) {
         self.recorder = Some(AnimationRecorder {
@@ -317,42 +317,42 @@ impl NeuralAnimationSystem {
             max_frames,
         });
     }
-    
+
     /// Stop recording and return frames
     pub fn stop_recording(&mut self) -> Option<Vec<AnimationFrame>> {
         self.recorder.take().map(|r| r.frames)
     }
-    
+
     /// Add a weight flow animation
     pub fn add_weight_flow(&mut self, num_layers: usize, duration: f32) -> usize {
         let anim = Box::new(WeightFlowAnimation::new(num_layers, duration));
         self.animations.push(anim);
         self.animations.len() - 1
     }
-    
+
     /// Add an activation heatmap
     pub fn add_activation_heatmap(&mut self, width: usize, height: usize) -> usize {
         let anim = Box::new(ActivationHeatmapAnimation::new(width, height));
         self.animations.push(anim);
         self.animations.len() - 1
     }
-    
+
     /// Update all animations
     pub fn update(&mut self) {
         if !self.frame_timer.should_render() {
             return;
         }
-        
+
         let delta_time = self.frame_timer.tick();
-        
+
         // Update all animations
         for anim in &mut self.animations {
             anim.update(delta_time);
         }
-        
+
         // Remove completed animations
         self.animations.retain(|anim| !anim.is_complete());
-        
+
         // Record frame if recording
         if let Some(recorder) = &mut self.recorder {
             if recorder.recording && recorder.frames.len() < recorder.max_frames {
@@ -361,26 +361,26 @@ impl NeuralAnimationSystem {
             }
         }
     }
-    
+
     /// Render all animations
     pub fn render(&self, ui: &mut Ui) {
         let available_rect = ui.available_rect();
         let painter = ui.painter();
-        
+
         // Render each animation
         for (i, anim) in self.animations.iter().enumerate() {
             let anim_rect = Rect::from_min_size(
                 available_rect.min + Vec2::new(0.0, i as f32 * 200.0),
                 Vec2::new(available_rect.width(), 180.0),
             );
-            
+
             anim.render(painter, anim_rect);
         }
-        
+
         // Show FPS
         ui.label(format!("FPS: {:.1}", self.frame_timer.average_fps()));
     }
-    
+
     /// Get animation by index for updates
     pub fn get_animation_mut(&mut self, index: usize) -> Option<&mut (dyn Animation + 'static)> {
         self.animations.get_mut(index).map(|a| a.as_mut())
@@ -409,7 +409,7 @@ impl NeuralAnimationSystem {
             // Add flows proportional to loss
             // Lower loss = more positive flows
         }
-        
+
         // Record training frame
         if let Some(recorder) = &mut self.recorder {
             if recorder.recording {
@@ -420,7 +420,7 @@ impl NeuralAnimationSystem {
             }
         }
     }
-    
+
     /// Create animation from recorded frames
     pub fn create_playback_animation(&self, frames: &[AnimationFrame]) -> PlaybackAnimation {
         PlaybackAnimation {
@@ -442,16 +442,16 @@ pub struct PlaybackAnimation {
 
 impl Animation for PlaybackAnimation {
     fn update(&mut self, delta_time: f32) {
-        self.current_frame = ((self.current_frame as f32 + delta_time * self.playback_speed * 30.0) as usize) 
+        self.current_frame = ((self.current_frame as f32 + delta_time * self.playback_speed * 30.0) as usize)
             % self.frames.len();
     }
-    
+
     fn render(&self, painter: &Painter, rect: Rect) {
         if let Some(frame) = self.frames.get(self.current_frame) {
             match &frame.data {
                 FrameData::Loss(policy, value) => {
                     // Render loss visualization
-                    let text = format!("Epoch {:.0}: P={:.4} V={:.4}", 
+                    let text = format!("Epoch {:.0}: P={:.4} V={:.4}",
                         frame.timestamp, policy, value);
                     painter.text(
                         rect.center(),
@@ -465,7 +465,7 @@ impl Animation for PlaybackAnimation {
             }
         }
     }
-    
+
     fn is_complete(&self) -> bool {
         !self.looping && self.current_frame >= self.frames.len() - 1
     }

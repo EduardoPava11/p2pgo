@@ -22,55 +22,55 @@ impl NeuralConfigUI {
             show_explanations: true,
         }
     }
-    
+
     /// Render the configuration UI
     pub fn render(&mut self, ui: &mut egui::Ui) {
         ui.heading("🧠 Neural Network Configuration");
-        
+
         // Explanation of dual network system
         ui.collapsing("Understanding Your Neural Networks", |ui| {
             ui.label(RichText::new("Like AlphaGo, you have TWO neural networks:").strong());
             ui.add_space(5.0);
-            
+
             ui.label("1️⃣ Policy Network (Move Predictor):");
             ui.label("   • Suggests where to play next");
             ui.label("   • Shows as heat map overlay");
             ui.label("   • Trained on move patterns from games");
             ui.add_space(5.0);
-            
+
             ui.label("2️⃣ Value Network (Position Evaluator):");
             ui.label("   • Evaluates who's winning");
             ui.label("   • Shows win probability percentage");
             ui.label("   • Trained on game outcomes");
             ui.add_space(10.0);
-            
+
             ui.label(RichText::new("Your answers configure BOTH networks!").color(egui::Color32::YELLOW));
         });
-        
+
         ui.separator();
-        
+
         if !self.is_complete {
             self.render_wizard(ui);
         } else {
             self.render_configured(ui);
         }
     }
-    
+
     /// Render the configuration wizard
     fn render_wizard(&mut self, ui: &mut egui::Ui) {
         ui.separator();
-        
+
         if let Some((question, description)) = self.wizard.get_question(self.current_question) {
             ui.label(RichText::new(format!("Question {} of 10", self.current_question + 1))
                 .size(16.0));
-            
+
             ui.add_space(10.0);
-            
+
             ui.label(RichText::new(question).size(18.0).strong());
             ui.label(description);
-            
+
             ui.add_space(20.0);
-            
+
             // Value slider
             let mut value = 5u8;
             ui.horizontal(|ui| {
@@ -79,15 +79,15 @@ impl NeuralConfigUI {
                     .show_value(true)
                     .clamp_to_range(true));
             });
-            
+
             ui.add_space(10.0);
-            
+
             // Show neural network impact
             ui.horizontal_wrapped(|ui| {
                 ui.label(RichText::new("🧠 Neural Impact:").strong());
                 let impact = match self.current_question {
-                    0 => format!("Aggression {}: Policy net will suggest {} attacking moves, Value net will {} fighting positions", 
-                        value, 
+                    0 => format!("Aggression {}: Policy net will suggest {} attacking moves, Value net will {} fighting positions",
+                        value,
                         if value > 6 { "more" } else { "fewer" },
                         if value > 6 { "favor" } else { "avoid" }
                     ),
@@ -131,9 +131,9 @@ impl NeuralConfigUI {
                 };
                 ui.label(impact);
             });
-            
+
             ui.add_space(10.0);
-            
+
             // Show what this value means
             let meaning = match self.current_question {
                 0 => match value { // Aggression
@@ -173,23 +173,23 @@ impl NeuralConfigUI {
                 },
                 _ => "",
             };
-            
+
             if !meaning.is_empty() {
                 ui.label(RichText::new(meaning).italics());
             }
-            
+
             ui.add_space(20.0);
-            
+
             ui.horizontal(|ui| {
                 if self.current_question > 0 {
                     if ui.button("← Previous").clicked() {
                         self.current_question -= 1;
                     }
                 }
-                
+
                 if ui.button("Next →").clicked() {
                     self.wizard.answer(value);
-                    
+
                     if self.wizard.is_complete() {
                         if let Some(config) = self.wizard.build_config() {
                             self.config = config;
@@ -202,13 +202,13 @@ impl NeuralConfigUI {
             });
         }
     }
-    
+
     /// Render the configured state
     fn render_configured(&mut self, ui: &mut egui::Ui) {
         ui.label(RichText::new("✅ Neural Network Configured").color(egui::Color32::GREEN));
-        
+
         ui.separator();
-        
+
         // Show configuration summary
         egui::Grid::new("config_summary")
             .num_columns(2)
@@ -217,26 +217,26 @@ impl NeuralConfigUI {
                 ui.label("Aggression:");
                 ui.label(format!("{}/10", self.config.aggression));
                 ui.end_row();
-                
+
                 ui.label("Territory Focus:");
                 ui.label(format!("{}/10", self.config.territory_focus));
                 ui.end_row();
-                
+
                 ui.label("Fighting Spirit:");
                 ui.label(format!("{}/10", self.config.fighting_spirit));
                 ui.end_row();
-                
+
                 ui.label("Pattern Recognition:");
                 ui.label(format!("{}/10", self.config.pattern_recognition));
                 ui.end_row();
-                
+
                 ui.label("Risk Tolerance:");
                 ui.label(format!("{}/10", self.config.risk_tolerance));
                 ui.end_row();
             });
-        
+
         ui.add_space(20.0);
-        
+
         // Preset buttons
         ui.label(RichText::new("Quick Presets:").strong());
         ui.horizontal(|ui| {
@@ -250,9 +250,9 @@ impl NeuralConfigUI {
                 self.config = NeuralConfig::territorial();
             }
         });
-        
+
         ui.add_space(10.0);
-        
+
         if ui.button("Reconfigure").clicked() {
             self.wizard = ConfigWizard::new();
             self.current_question = 0;
@@ -268,45 +268,45 @@ impl NeuralExplanationPanel {
     pub fn render(ui: &mut egui::Ui) {
         ui.collapsing("🤔 How Neural Networks Work", |ui| {
             ui.label("The neural network analyzes the board and suggests moves based on patterns learned from professional games.");
-            
+
             ui.add_space(5.0);
-            
+
             ui.label(RichText::new("Heat Maps:").strong());
             ui.label("• Red areas = High probability moves");
             ui.label("• Yellow areas = Medium probability moves");
             ui.label("• Blue areas = Low probability moves");
             ui.label("• Transparent = Very unlikely moves");
-            
+
             ui.add_space(5.0);
-            
+
             ui.label(RichText::new("Configuration Impact:").strong());
             ui.label("• Aggression: Prefers attacking moves vs defensive");
             ui.label("• Territory: Focus on securing points vs influence");
             ui.label("• Fighting: Willingness to engage in complex battles");
             ui.label("• Patterns: Rely on known shapes vs deep calculation");
-            
+
             ui.add_space(5.0);
-            
+
             ui.label(RichText::new("Training:").strong());
             ui.label("Upload SGF files from your games or OGS to train the network on your playing style!");
         });
-        
+
         ui.collapsing("📚 Button Guide", |ui| {
             ui.label(RichText::new("Configure Neural Net:").strong());
             ui.label("Answer 10 questions to set up your AI assistant's personality");
-            
+
             ui.add_space(5.0);
-            
+
             ui.label(RichText::new("Upload SGF Files:").strong());
             ui.label("Train the network using game records from OGS or other sources");
-            
+
             ui.add_space(5.0);
-            
+
             ui.label(RichText::new("Toggle Heat Map (H key):").strong());
             ui.label("Show/hide move probability visualization during play");
-            
+
             ui.add_space(5.0);
-            
+
             ui.label(RichText::new("Save/Load Network:").strong());
             ui.label("Save your trained network or load a pre-trained one");
         });

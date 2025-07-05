@@ -1,11 +1,10 @@
 //! Game lobby for creating and joining games
 
-use egui::{Align, Color32, Frame, Layout, RichText, Ui, Vec2, Widget};
 use crate::core::{
-    Colors, Spacing, Styles, Typography,
-    primary_button, secondary_button,
-    Card, StyledInput, LabeledInput,
+    primary_button, secondary_button, Card, Colors, LabeledInput, Spacing, StyledInput, Styles,
+    Typography,
 };
+use egui::{Align, Color32, Frame, Layout, RichText, Ui, Vec2, Widget};
 
 pub struct LobbyView {
     pub create_game_code: String,
@@ -33,20 +32,24 @@ impl LobbyView {
             show_join_dialog: false,
         }
     }
-    
+
     pub fn show(&mut self, ui: &mut Ui) -> LobbyAction {
         let mut action = LobbyAction::None;
-        
+
         // Center everything
         ui.vertical_centered(|ui| {
             ui.add_space(Spacing::XL);
-            
+
             // Title
             ui.heading(RichText::new("P2P Go").size(32.0));
-            ui.label(RichText::new("Decentralized Go with Neural Networks").size(16.0).color(Colors::TEXT_SECONDARY));
-            
+            ui.label(
+                RichText::new("Decentralized Go with Neural Networks")
+                    .size(16.0)
+                    .color(Colors::TEXT_SECONDARY),
+            );
+
             ui.add_space(Spacing::XL);
-            
+
             // Main buttons
             ui.horizontal(|ui| {
                 if primary_button("Create Game")
@@ -57,9 +60,9 @@ impl LobbyView {
                 {
                     action = LobbyAction::CreateGame(String::new());
                 }
-                
+
                 ui.add_space(Spacing::MD);
-                
+
                 if secondary_button("Join Game")
                     .size(crate::core::button::ButtonSize::Large)
                     .min_width(200.0)
@@ -69,9 +72,9 @@ impl LobbyView {
                     self.show_join_dialog = true;
                 }
             });
-            
+
             ui.add_space(Spacing::XL);
-            
+
             // Active games list
             if !self.available_games.is_empty() {
                 Card::new()
@@ -79,7 +82,7 @@ impl LobbyView {
                     .show(ui, |ui| {
                         ui.heading("Active Games");
                         ui.separator();
-                        
+
                         egui::ScrollArea::vertical()
                             .max_height(300.0)
                             .show(ui, |ui| {
@@ -89,10 +92,13 @@ impl LobbyView {
                             });
                     });
             } else {
-                ui.label(RichText::new("No active games. Create one to start playing!").color(Colors::TEXT_SECONDARY));
+                ui.label(
+                    RichText::new("No active games. Create one to start playing!")
+                        .color(Colors::TEXT_SECONDARY),
+                );
             }
         });
-        
+
         // Create game dialog
         if self.show_create_dialog {
             egui::Window::new("Create Game")
@@ -103,29 +109,32 @@ impl LobbyView {
                     ui.vertical(|ui| {
                         ui.heading("New Game");
                         ui.separator();
-                        
+
                         ui.label("Share this code with your opponent:");
-                        
+
                         ui.horizontal(|ui| {
                             ui.add(
                                 egui::TextEdit::singleline(&mut self.create_game_code)
                                     .font(egui::TextStyle::Monospace)
                                     .desired_width(200.0)
-                                    .interactive(false)
+                                    .interactive(false),
                             );
-                            
+
                             if ui.button("📋 Copy").clicked() {
                                 ui.output_mut(|o| o.copied_text = self.create_game_code.clone());
                             }
                         });
-                        
+
                         ui.add_space(Spacing::MD);
-                        
-                        ui.label(RichText::new("Waiting for opponent to join...").color(Colors::TEXT_SECONDARY));
+
+                        ui.label(
+                            RichText::new("Waiting for opponent to join...")
+                                .color(Colors::TEXT_SECONDARY),
+                        );
                         ui.spinner();
-                        
+
                         ui.add_space(Spacing::MD);
-                        
+
                         ui.horizontal(|ui| {
                             if primary_button("Start Game")
                                 .enabled(false) // Enable when opponent joins
@@ -135,7 +144,7 @@ impl LobbyView {
                                 action = LobbyAction::CreateGame(self.create_game_code.clone());
                                 self.show_create_dialog = false;
                             }
-                            
+
                             if secondary_button("Cancel").ui(ui).clicked() {
                                 self.show_create_dialog = false;
                             }
@@ -143,7 +152,7 @@ impl LobbyView {
                     });
                 });
         }
-        
+
         // Join game dialog
         if self.show_join_dialog {
             egui::Window::new("Join Game")
@@ -154,13 +163,13 @@ impl LobbyView {
                     ui.vertical(|ui| {
                         ui.heading("Join Game");
                         ui.separator();
-                        
+
                         LabeledInput::new("Game Code", &mut self.join_game_code)
                             .hint_text("Enter game code")
                             .show(ui);
-                        
+
                         ui.add_space(Spacing::MD);
-                        
+
                         ui.horizontal(|ui| {
                             if primary_button("Join")
                                 .enabled(!self.join_game_code.is_empty())
@@ -170,7 +179,7 @@ impl LobbyView {
                                 action = LobbyAction::JoinGame(self.join_game_code.clone());
                                 self.show_join_dialog = false;
                             }
-                            
+
                             if secondary_button("Cancel").ui(ui).clicked() {
                                 self.show_join_dialog = false;
                                 self.join_game_code.clear();
@@ -179,10 +188,10 @@ impl LobbyView {
                     });
                 });
         }
-        
+
         action
     }
-    
+
     fn render_game_listing(&self, ui: &mut Ui, game: &GameListing, action: &mut LobbyAction) {
         Frame::none()
             .fill(Color32::from_rgb(
@@ -196,14 +205,18 @@ impl LobbyView {
                 ui.horizontal(|ui| {
                     ui.vertical(|ui| {
                         ui.label(RichText::new(&game.code).family(egui::FontFamily::Monospace));
-                        ui.label(RichText::new(format!("Host: {}", game.host)).small().color(Colors::TEXT_SECONDARY));
+                        ui.label(
+                            RichText::new(format!("Host: {}", game.host))
+                                .small()
+                                .color(Colors::TEXT_SECONDARY),
+                        );
                     });
-                    
+
                     ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                         if secondary_button("Join").ui(ui).clicked() {
                             *action = LobbyAction::JoinGame(game.code.clone());
                         }
-                        
+
                         ui.label(&game.status);
                         ui.label(format!("{}x{}", game.board_size, game.board_size));
                     });

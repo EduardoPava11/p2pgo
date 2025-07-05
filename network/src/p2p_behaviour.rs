@@ -5,7 +5,7 @@
 
 use libp2p::{
     identity::Keypair,
-    PeerId, 
+    PeerId,
     swarm::NetworkBehaviour,
     kad::{Behaviour as Kademlia, Config as KademliaConfig, Event as KademliaEvent, store::MemoryStore},
     relay,
@@ -27,29 +27,29 @@ use anyhow::Result;
 pub struct P2PGoBehaviour {
     /// Kademlia DHT for decentralized discovery and storage
     pub kademlia: Kademlia<MemoryStore>,
-    
+
     /// Circuit Relay V2 client for using relays
     pub relay_client: relay::client::Behaviour,
-    
+
     /// Circuit Relay V2 server for providing relay service (optional)
     pub relay_server: Option<relay::Behaviour>,
-    
+
     /// Direct connection upgrade through relay
     pub dcutr: dcutr::Behaviour,
-    
+
     /// Identify protocol for peer information exchange
     pub identify: Identify,
-    
+
     /// AutoNAT for NAT detection
     pub autonat: Autonat,
-    
+
     /// GossipSub for game state propagation
     pub gossipsub: Gossipsub,
-    
+
     /// mDNS for local peer discovery
     pub mdns: Mdns,
-    
-    
+
+
     /// Connection allow/block list
     pub blocked_peers: AllowBlockList<BlockedPeers>,
 }
@@ -62,21 +62,21 @@ impl P2PGoBehaviour {
         relay_server_config: Option<RelayServerConfig>,
     ) -> Result<Self> {
         let peer_id = PeerId::from(keypair.public());
-        
+
         // Configure Kademlia for decentralized discovery
         let mut kad_config = KademliaConfig::default();
         kad_config.set_query_timeout(Duration::from_secs(60));
         kad_config.set_replication_factor(3.try_into().unwrap());
-        
+
         let kademlia = Kademlia::with_config(
             peer_id,
             MemoryStore::new(peer_id),
             kad_config,
         );
-        
+
         // Circuit Relay V2 client - everyone can use relays
         let relay_client = relay::client::Behaviour::new(peer_id);
-        
+
         // Circuit Relay V2 server - optional relay provider
         let relay_server = if enable_relay_server {
             let config = relay_server_config.unwrap_or_default();
@@ -94,19 +94,19 @@ impl P2PGoBehaviour {
         } else {
             None
         };
-        
+
         // DCUtR for direct connection upgrade
         let dcutr = dcutr::Behaviour::new(peer_id);
-        
+
         // Identify for peer information exchange
         let identify = Identify::new(IdentifyConfig::new(
             "/p2pgo/1.0.0".to_string(),
             keypair.public(),
         ));
-        
+
         // AutoNAT for NAT detection
         let autonat = Autonat::new(peer_id, Default::default());
-        
+
         // GossipSub for game state propagation
         let gossipsub_config = GossipsubConfigBuilder::default()
             .heartbeat_interval(Duration::from_secs(10))
@@ -120,18 +120,18 @@ impl P2PGoBehaviour {
             })
             .build()
             .expect("Valid gossipsub config");
-            
+
         let gossipsub = Gossipsub::new(
             MessageAuthenticity::Signed(keypair.clone()),
             gossipsub_config,
         ).expect("Valid gossipsub");
-        
+
         // mDNS for local discovery
         let mdns = Mdns::new(Default::default())?;
-        
+
         // Connection filtering
         let blocked_peers = AllowBlockList::default();
-        
+
         Ok(Self {
             kademlia,
             relay_client,
@@ -144,33 +144,33 @@ impl P2PGoBehaviour {
             blocked_peers,
         })
     }
-    
+
     /// Bootstrap into the P2P network
     pub async fn bootstrap(&mut self) -> Result<()> {
         // No hardcoded bootstrap nodes! Instead:
-        
+
         // 1. Start local discovery
         info!("Starting local peer discovery via mDNS");
-        
+
         // 2. Try to find peers via DHT bootstrap
         self.kademlia.bootstrap()?;
-        
+
         // 3. Subscribe to relevant topics
         self.gossipsub.subscribe(&gossipsub_topic("games"))?;
         self.gossipsub.subscribe(&gossipsub_topic("relays"))?;
-        
+
         // 4. Advertise our capabilities in DHT
         if self.relay_server.is_some() {
             self.advertise_relay_capability().await?;
         }
-        
+
         Ok(())
     }
-    
+
     /// Advertise relay capability in DHT
     async fn advertise_relay_capability(&mut self) -> Result<()> {
         use libp2p::kad::{RecordKey as Key, Record};
-        
+
         // Advertise as relay provider
         let key = Key::new(&crate::protocols::peer_discovery::RELAY_NAMESPACE);
         let record = Record {
@@ -179,37 +179,37 @@ impl P2PGoBehaviour {
             publisher: None,
             expires: None,
         };
-        
+
         self.kademlia.put_record(record, libp2p::kad::Quorum::One)?;
         info!("Advertised relay capability in DHT");
-        
+
         Ok(())
     }
-    
+
     /// Find relay servers via DHT
     pub async fn discover_relays(&mut self) -> Result<Vec<PeerId>> {
         use libp2p::kad::RecordKey as Key;
-        
+
         let key = Key::new(&crate::protocols::peer_discovery::RELAY_NAMESPACE);
         self.kademlia.get_providers(key);
-        
+
         // Results will come via swarm events
         Ok(vec![])
     }
-    
+
     /// Connect to a peer, using relay if necessary
     pub async fn connect_peer(&mut self, peer_id: PeerId) -> Result<()> {
         // First try direct connection via known addresses
         // If that fails, DCUtR will automatically try via relay
-        
+
         info!("Attempting to connect to peer {:?}", peer_id);
-        
+
         // The actual connection happens through swarm dial
         // DCUtR handles relay upgrades automatically
-        
+
         Ok(())
     }
-    
+
     /// Publish game availability
     pub async fn publish_game(&mut self, game_id: &str, metadata: GameMetadata) -> Result<()> {
         // 1. Store in DHT
@@ -220,22 +220,22 @@ impl P2PGoBehaviour {
             publisher: None,
             expires: None,
         };
-        
+
         self.kademlia.put_record(record, libp2p::kad::Quorum::One)?;
-        
+
         // 2. Announce via GossipSub
         let topic = gossipsub_topic("games");
         let message = serde_json::to_vec(&GameAnnouncement {
             game_id: game_id.to_string(),
             metadata: metadata.clone(),
         })?;
-        
+
         self.gossipsub.publish(topic, message)?;
-        
+
         info!("Published game {} to P2P network", game_id);
         Ok(())
     }
-    
+
     /// Find available games
     pub async fn find_games(&mut self, board_size: Option<u8>) -> Result<()> {
         // Query DHT for games
@@ -243,10 +243,10 @@ impl P2PGoBehaviour {
             Some(size) => format!("/games/size/{}", size),
             None => "/games/".to_string(),
         };
-        
+
         // This will trigger DHT queries
         self.kademlia.start_providing(libp2p::kad::RecordKey::new(&pattern))?;
-        
+
         Ok(())
     }
 }
@@ -256,16 +256,16 @@ impl P2PGoBehaviour {
 pub struct RelayServerConfig {
     /// Maximum number of reservations
     pub max_reservations: usize,
-    
+
     /// Maximum reservations per peer
     pub max_reservations_per_peer: usize,
-    
+
     /// How long reservations last
     pub reservation_duration: Duration,
-    
+
     /// Maximum number of circuits
     pub max_circuits: usize,
-    
+
     /// Maximum circuits per peer
     pub max_circuits_per_peer: usize,
 }
@@ -287,16 +287,16 @@ impl Default for RelayServerConfig {
 pub struct GameMetadata {
     /// Game ID
     pub id: String,
-    
+
     /// Board size
     pub board_size: u8,
-    
+
     /// Players
     pub players: Vec<PlayerInfo>,
-    
+
     /// Game state
     pub state: GameStateInfo,
-    
+
     /// Time controls
     pub time_control: Option<TimeControl>,
 }
@@ -356,7 +356,7 @@ impl P2PGoBehaviour {
             _ => {}
         }
     }
-    
+
     /// Process mDNS events
     pub fn handle_mdns_event(&mut self, event: MdnsEvent) {
         match event {
@@ -374,7 +374,7 @@ impl P2PGoBehaviour {
             }
         }
     }
-    
+
     /// Process relay events
     pub fn handle_relay_event(&mut self, event: relay::Event) {
         match event {

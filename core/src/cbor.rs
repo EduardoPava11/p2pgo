@@ -1,20 +1,20 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 //! CBOR serialization helpers for game state
-//! 
+//!
 //! This module provides functions for serializing and deserializing
 //! game state and events using the Concise Binary Object Representation (CBOR).
 
-use crate::{GameState, GameEvent, Move};
-use serde::{Serialize, Deserialize};
-use serde_repr::{Serialize_repr, Deserialize_repr};
+use crate::{GameEvent, GameState, Move};
 use blake3;
 use ed25519_dalek::{Signer, Verifier};
+use serde::{Deserialize, Serialize};
+use serde_repr::{Deserialize_repr, Serialize_repr};
 
 // Helper module for serializing fixed-size byte arrays
 mod serde_arrays_64 {
-    use serde::{Deserialize, Deserializer, Serialize, Serializer};
     use serde::de::Error;
+    use serde::{Deserialize, Deserializer, Serialize, Serializer};
     use std::convert::TryInto;
 
     pub fn serialize<S>(bytes: &Option<[u8; 64]>, serializer: S) -> Result<S::Ok, S::Error>
@@ -34,7 +34,8 @@ mod serde_arrays_64 {
         let opt = Option::<Vec<u8>>::deserialize(deserializer)?;
         match opt {
             Some(vec) => {
-                let arr: [u8; 64] = vec.try_into()
+                let arr: [u8; 64] = vec
+                    .try_into()
                     .map_err(|_| D::Error::custom("Expected 64 bytes for signature"))?;
                 Ok(Some(arr))
             }
@@ -55,9 +56,9 @@ pub enum Tag {
 /// A move record with optional annotation tag and timestamp
 ///
 /// # Signatures
-/// 
+///
 /// MoveRecords can be signed using ed25519 signatures for authenticating the
-/// sender of a move. The signature is generated using the sender's ed25519 
+/// sender of a move. The signature is generated using the sender's ed25519
 /// keypair and covers all fields of the MoveRecord except the signature and
 /// signer fields themselves.
 ///
@@ -94,7 +95,6 @@ pub struct MoveRecord {
 impl MoveRecord {
     /// Create a new MoveRecord with proper hash chain
     pub fn new(mv: Move, tag: Option<Tag>, ts: u64, prev_hash: Option<[u8; 32]>) -> Self {
-            
         let mut record = Self {
             mv,
             tag,
@@ -105,12 +105,12 @@ impl MoveRecord {
             signer: None,
             sequence: 0, // Default to 0, should be updated when adding to chain
         };
-        
+
         // Calculate and set the broadcast hash
         record.calculate_broadcast_hash();
         record
     }
-    
+
     /// Create a new MoveRecord with auto-generated timestamp
     pub fn new_with_timestamp(mv: Move, tag: Option<Tag>, prev_hash: Option<[u8; 32]>) -> Self {
         let ts = std::time::SystemTime::now()
@@ -119,12 +119,12 @@ impl MoveRecord {
             .as_secs();
         Self::new(mv, tag, ts, prev_hash)
     }
-    
+
     /// Calculate and set the broadcast hash for this move record
     pub fn calculate_broadcast_hash(&mut self) {
         // Temporarily clear broadcast_hash to avoid including it in the hash calculation
         let old_hash = self.broadcast_hash.take();
-        
+
         // Serialize without the broadcast_hash
         if let Ok(bytes) = serde_cbor::to_vec(self) {
             let hash = blake3::hash(&bytes);
@@ -135,22 +135,35 @@ impl MoveRecord {
             tracing::error!("Failed to serialize MoveRecord for hash calculation");
         }
     }
-    
+
     /// Create a pass move record
     pub fn pass(prev_hash: Option<[u8; 32]>) -> Self {
         Self::new_with_timestamp(Move::Pass, None, prev_hash)
     }
-    
-    /// Create a resign move record  
+
+    /// Create a resign move record
     pub fn resign(prev_hash: Option<[u8; 32]>) -> Self {
         Self::new_with_timestamp(Move::Resign, None, prev_hash)
     }
-    
+
     /// Create a stone placement move record
-    pub fn place(coord: crate::Coord, color: crate::Color, tag: Option<Tag>, prev_hash: Option<[u8; 32]>) -> Self {
-        Self::new_with_timestamp(Move::Place { x: coord.x, y: coord.y, color }, tag, prev_hash)
+    pub fn place(
+        coord: crate::Coord,
+        color: crate::Color,
+        tag: Option<Tag>,
+        prev_hash: Option<[u8; 32]>,
+    ) -> Self {
+        Self::new_with_timestamp(
+            Move::Place {
+                x: coord.x,
+                y: coord.y,
+                color,
+            },
+            tag,
+            prev_hash,
+        )
     }
-    
+
     /// Serialize this move record to CBOR bytes
     pub fn to_bytes(&self) -> Vec<u8> {
         match serde_cbor::to_vec(self) {
@@ -161,34 +174,34 @@ impl MoveRecord {
             }
         }
     }
-    
+
     /// Sign the move record using an ed25519 keypair
     pub fn sign(&mut self, keypair: &ed25519_dalek::SigningKey) {
         // Clear any existing signature to not include it in the signing data
         self.signature = None;
         self.signer = None;
-        
+
         // Serialize the move record to bytes without the signature
         let bytes = self.to_bytes();
-        
+
         // Sign the bytes
         let signature = keypair.sign(&bytes);
-        
+
         // Set the signature and signer (derived from verifying key)
         self.signature = Some(signature.to_bytes());
         self.signer = Some(hex::encode(keypair.verifying_key().as_bytes()));
     }
-    
+
     /// Check if this move record is signed
     pub fn is_signed(&self) -> bool {
         self.signature.is_some() && self.signer.is_some()
     }
-    
+
     /// Get the signer's node ID as a hex string, if available
     pub fn get_signer(&self) -> Option<&str> {
         self.signer.as_deref()
     }
-    
+
     /// Verify the signature on this move record
     pub fn verify_signature(&self) -> bool {
         match (&self.signature, &self.signer) {
@@ -197,10 +210,10 @@ impl MoveRecord {
                 let mut temp_record = self.clone();
                 temp_record.signature = None;
                 temp_record.signer = None;
-                
+
                 // Serialize to bytes
                 let bytes = temp_record.to_bytes();
-                
+
                 // Parse hex signer to get verifying key
                 match hex::decode(signer) {
                     Ok(signer_bytes) => {
@@ -208,30 +221,31 @@ impl MoveRecord {
                             tracing::warn!("Invalid signer key length");
                             return false;
                         }
-                        
+
                         // Convert to [u8; 32] for ed25519_dalek
                         let mut key_bytes = [0u8; 32];
                         key_bytes.copy_from_slice(&signer_bytes);
-                        
+
                         // Create verifying key
                         match ed25519_dalek::VerifyingKey::from_bytes(&key_bytes) {
-                            Ok(verifying_key) => {                        // Convert signature bytes to ed25519_dalek::Signature
-                        let signature = match ed25519_dalek::Signature::try_from(*sig) {
-                            Ok(sig) => sig,
-                            Err(e) => {
-                                tracing::warn!("Failed to parse signature: {}", e);
-                                return false;
-                            }
-                        };
-                        
-                        // Verify signature
-                        match verifying_key.verify(&bytes, &signature) {
-                            Ok(_) => true,
-                            Err(e) => {
-                                tracing::warn!("Signature verification failed: {}", e);
-                                false
-                            }
-                        }
+                            Ok(verifying_key) => {
+                                // Convert signature bytes to ed25519_dalek::Signature
+                                let signature = match ed25519_dalek::Signature::try_from(*sig) {
+                                    Ok(sig) => sig,
+                                    Err(e) => {
+                                        tracing::warn!("Failed to parse signature: {}", e);
+                                        return false;
+                                    }
+                                };
+
+                                // Verify signature
+                                match verifying_key.verify(&bytes, &signature) {
+                                    Ok(_) => true,
+                                    Err(e) => {
+                                        tracing::warn!("Signature verification failed: {}", e);
+                                        false
+                                    }
+                                }
                             }
                             Err(e) => {
                                 tracing::warn!("Failed to create verifying key: {}", e);
@@ -255,7 +269,7 @@ impl MoveRecord {
             }
         }
     }
-    
+
     /// Verify signature if present, return true if valid or if no signature exists
     pub fn verify_signature_lenient(&self) -> bool {
         if self.is_signed() {
@@ -309,7 +323,7 @@ pub fn deserialize_game_event(data: &[u8]) -> Option<GameEvent> {
     if data.is_empty() {
         return None;
     }
-    
+
     match serde_cbor::from_slice(data) {
         Ok(event) => Some(event),
         Err(err) => {
@@ -318,5 +332,3 @@ pub fn deserialize_game_event(data: &[u8]) -> Option<GameEvent> {
         }
     }
 }
-
-

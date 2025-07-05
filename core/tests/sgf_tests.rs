@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
-use p2pgo_core::{GameState, Move, Coord};
 use p2pgo_core::sgf::SgfProcessor;
+use p2pgo_core::{Coord, GameState, Move};
 
 #[test]
 fn sgf_roundtrip() {
@@ -18,10 +18,10 @@ fn sgf_roundtrip() {
 fn parse_simple_sgf() {
     // Simple SGF string
     let sgf = "(;GM[1]FF[4]SZ[9];B[ee];W[dc];B[fc];W[];B[hh])";
-    
+
     let mut processor = SgfProcessor::new(GameState::new(9));
     let game_state = processor.parse(sgf).unwrap();
-    
+
     assert_eq!(game_state.board_size, 9);
     assert_eq!(game_state.moves.len(), 5);
 }

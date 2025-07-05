@@ -10,13 +10,13 @@ use crate::update_checker::{UpdateCheckResult, UpdateInfo, Version};
 pub struct UpdateNotification {
     /// Result of the update check
     pub result: UpdateCheckResult,
-    
+
     /// Whether the notification is shown
     pub visible: bool,
-    
+
     /// Whether the user has dismissed this notification
     pub dismissed: bool,
-    
+
     /// Whether to show detailed release notes
     pub show_details: bool,
 }
@@ -31,22 +31,22 @@ impl UpdateNotification {
             show_details: false,
         }
     }
-    
+
     /// Show the update notification UI
     pub fn show(&mut self, ctx: &egui::Context) -> UpdateAction {
         if !self.visible || self.dismissed {
             return UpdateAction::None;
         }
-        
+
         let mut action = UpdateAction::None;
-        
+
         // Determine notification style based on whether update is required
         let (title, icon, style) = if self.result.update_required {
             ("Required Update Available", "⚠️", NotificationStyle::Critical)
         } else {
             ("Update Available", "🔄", NotificationStyle::Info)
         };
-        
+
         // Position the notification at top-right corner
         let screen_rect = ctx.screen_rect();
         let notification_width = 350.0;
@@ -54,7 +54,7 @@ impl UpdateNotification {
             screen_rect.max.x - notification_width - 20.0,
             screen_rect.min.y + 20.0,
         );
-        
+
         egui::Window::new("update_notification")
             .title_bar(false)
             .resizable(false)
@@ -65,31 +65,31 @@ impl UpdateNotification {
                 // Apply styling based on notification type
                 match style {
                     NotificationStyle::Critical => {
-                        ui.visuals_mut().widgets.noninteractive.bg_fill = 
+                        ui.visuals_mut().widgets.noninteractive.bg_fill =
                             egui::Color32::from_rgb(50, 20, 20);
                     }
                     NotificationStyle::Info => {
-                        ui.visuals_mut().widgets.noninteractive.bg_fill = 
+                        ui.visuals_mut().widgets.noninteractive.bg_fill =
                             egui::Color32::from_rgb(20, 30, 50);
                     }
                 }
-                
+
                 ui.vertical(|ui| {
                     // Header
                     ui.horizontal(|ui| {
                         ui.label(egui::RichText::new(format!("{} {}", icon, title))
                             .size(16.0)
                             .strong());
-                        
+
                         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                             if !self.result.update_required && ui.small_button("✕").clicked() {
                                 self.dismissed = true;
                             }
                         });
                     });
-                    
+
                     ui.add_space(5.0);
-                    
+
                     // Version info
                     if let Some(ref latest) = self.result.latest_version {
                         ui.horizontal(|ui| {
@@ -104,7 +104,7 @@ impl UpdateNotification {
                                 .color(egui::Color32::from_rgb(100, 200, 100)));
                         });
                     }
-                    
+
                     // Announcement
                     if let Some(ref announcement) = self.result.announcement {
                         ui.add_space(5.0);
@@ -112,16 +112,16 @@ impl UpdateNotification {
                         ui.add_space(5.0);
                         ui.label(announcement);
                     }
-                    
+
                     // Update info
                     if let Some(ref update_info) = self.result.update_info {
                         ui.add_space(5.0);
-                        
+
                         // Show release notes toggle
                         if ui.link("View release notes").clicked() {
                             self.show_details = !self.show_details;
                         }
-                        
+
                         if self.show_details {
                             ui.add_space(5.0);
                             egui::ScrollArea::vertical()
@@ -130,7 +130,7 @@ impl UpdateNotification {
                                     ui.label(&update_info.release_notes);
                                 });
                         }
-                        
+
                         // Update size info
                         if update_info.size > 0 {
                             ui.add_space(5.0);
@@ -138,12 +138,12 @@ impl UpdateNotification {
                             ui.label(format!("Download size: {:.1} MB", size_mb));
                         }
                     }
-                    
+
                     // Action buttons
                     ui.add_space(10.0);
                     ui.separator();
                     ui.add_space(5.0);
-                    
+
                     ui.horizontal(|ui| {
                         if self.result.update_required {
                             if ui.button("Update Now").clicked() {
@@ -166,7 +166,7 @@ impl UpdateNotification {
                     });
                 });
             });
-        
+
         action
     }
 }
@@ -195,13 +195,13 @@ enum NotificationStyle {
 pub struct UpdateDialog {
     /// Current state of the update process
     pub state: UpdateState,
-    
+
     /// Progress value (0.0 to 1.0)
     pub progress: f32,
-    
+
     /// Status message
     pub status_message: String,
-    
+
     /// Error message if any
     pub error: Option<String>,
 }
@@ -235,21 +235,21 @@ impl UpdateDialog {
             error: None,
         }
     }
-    
+
     /// Show the update dialog
     pub fn show(&mut self, ctx: &egui::Context) -> bool {
         let mut keep_open = true;
-        
+
         egui::Window::new("Update Progress")
             .collapsible(false)
             .resizable(false)
             .show(ctx, |ui| {
                 ui.set_min_width(400.0);
-                
+
                 ui.vertical(|ui| {
                     // Show current status
                     ui.heading(&self.status_message);
-                    
+
                     // Show progress bar for applicable states
                     match self.state {
                         UpdateState::Downloading | UpdateState::Verifying | UpdateState::Installing => {
@@ -258,18 +258,18 @@ impl UpdateDialog {
                         }
                         _ => {}
                     }
-                    
+
                     // Show error if any
                     if let Some(ref error) = self.error {
                         ui.add_space(10.0);
                         ui.colored_label(egui::Color32::from_rgb(200, 50, 50), error);
                     }
-                    
+
                     // Action buttons based on state
                     ui.add_space(20.0);
                     ui.separator();
                     ui.add_space(10.0);
-                    
+
                     match self.state {
                         UpdateState::Failed => {
                             ui.horizontal(|ui| {
@@ -310,15 +310,15 @@ impl UpdateDialog {
                     }
                 });
             });
-        
+
         keep_open
     }
-    
+
     /// Update the dialog state
     pub fn set_state(&mut self, state: UpdateState, message: String) {
         self.state = state;
         self.status_message = message;
-        
+
         // Reset progress for new states
         match state {
             UpdateState::Checking | UpdateState::Downloading | UpdateState::Verifying => {
@@ -327,12 +327,12 @@ impl UpdateDialog {
             _ => {}
         }
     }
-    
+
     /// Set progress value
     pub fn set_progress(&mut self, progress: f32) {
         self.progress = progress.clamp(0.0, 1.0);
     }
-    
+
     /// Set error message
     pub fn set_error(&mut self, error: String) {
         self.error = Some(error);
@@ -344,11 +344,11 @@ impl UpdateDialog {
 /// Helper function to show a simple update available banner
 pub fn show_update_banner(ui: &mut egui::Ui, version: &Version) -> bool {
     let mut clicked = false;
-    
+
     ui.horizontal(|ui| {
-        ui.visuals_mut().widgets.noninteractive.bg_fill = 
+        ui.visuals_mut().widgets.noninteractive.bg_fill =
             egui::Color32::from_rgb(30, 40, 60);
-        
+
         egui::Frame::none()
             .inner_margin(egui::vec2(10.0, 5.0))
             .fill(egui::Color32::from_rgb(30, 40, 60))
@@ -360,6 +360,6 @@ pub fn show_update_banner(ui: &mut egui::Ui, version: &Version) -> bool {
                 }
             });
     });
-    
+
     clicked
 }

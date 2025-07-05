@@ -1,12 +1,12 @@
 //! Connection management with retry logic and circuit breakers
 
+use anyhow::{anyhow, Result};
+use libp2p::PeerId;
+use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
-use std::collections::HashMap;
-use libp2p::PeerId;
 use tokio::time::sleep;
-use anyhow::{Result, anyhow};
-use tracing::{info, warn, error};
+use tracing::{error, info, warn};
 
 /// Connection state for a peer
 #[derive(Debug, Clone)]
@@ -84,58 +84,63 @@ impl ConnectionManager {
             config,
         }
     }
-    
+
     /// Attempt to connect to a peer with retry logic
-    pub async fn connect_with_retry<F, Fut>(
-        &self,
-        peer_id: PeerId,
-        connect_fn: F,
-    ) -> Result<()>
+    pub async fn connect_with_retry<F, Fut>(&self, peer_id: PeerId, connect_fn: F) -> Result<()>
     where
         F: Fn() -> Fut,
         Fut: std::future::Future<Output = Result<()>>,
     {
         let mut attempt = 0;
         let mut delay = self.config.initial_delay;
-        
+
         loop {
             // Check circuit breaker
             if !self.should_attempt_connection(&peer_id) {
                 return Err(anyhow!("Circuit breaker is open for peer {}", peer_id));
             }
-            
+
             // Update state
             self.update_state(&peer_id, |state| {
                 state.attempts += 1;
                 state.last_attempt = Some(Instant::now());
-                
+
                 // Set to half-open if was open
                 if matches!(state.circuit_breaker, CircuitBreakerState::Open { .. }) {
                     state.circuit_breaker = CircuitBreakerState::HalfOpen;
                 }
             });
-            
+
             // Attempt connection
             match connect_fn().await {
                 Ok(()) => {
-                    info!("Successfully connected to peer {} after {} attempts", peer_id, attempt + 1);
-                    
+                    info!(
+                        "Successfully connected to peer {} after {} attempts",
+                        peer_id,
+                        attempt + 1
+                    );
+
                     // Update state on success
                     self.update_state(&peer_id, |state| {
                         state.connected_at = Some(Instant::now());
                         state.consecutive_failures = 0;
                         state.circuit_breaker = CircuitBreakerState::Closed;
                     });
-                    
+
                     return Ok(());
                 }
                 Err(e) => {
-                    warn!("Connection attempt {} to peer {} failed: {}", attempt + 1, peer_id, e);
-                    
+                    warn!(
+                        "Connection attempt {} to peer {} failed: {}",
+                        attempt + 1,
+                        peer_id,
+                        e
+                    );
+
                     // Update failure count
                     self.update_state(&peer_id, |state| {
                         state.consecutive_failures += 1;
-                        
+
                         // Open circuit breaker if threshold reached
                         if state.consecutive_failures >= self.config.circuit_breaker_threshold {
                             state.circuit_breaker = CircuitBreakerState::Open {
@@ -147,21 +152,22 @@ impl ConnectionManager {
                             );
                         }
                     });
-                    
+
                     attempt += 1;
-                    
+
                     // Check if we've exceeded max attempts
                     if attempt >= self.config.max_attempts {
                         return Err(anyhow!(
                             "Failed to connect to peer {} after {} attempts",
-                            peer_id, attempt
+                            peer_id,
+                            attempt
                         ));
                     }
-                    
+
                     // Wait before next attempt
                     info!("Retrying connection to peer {} in {:?}", peer_id, delay);
                     sleep(delay).await;
-                    
+
                     // Calculate next delay with exponential backoff
                     delay = std::cmp::min(
                         Duration::from_secs_f64(delay.as_secs_f64() * self.config.backoff_factor),
@@ -171,11 +177,11 @@ impl ConnectionManager {
             }
         }
     }
-    
+
     /// Check if connection should be attempted
     fn should_attempt_connection(&self, peer_id: &PeerId) -> bool {
         let states = self.states.lock().unwrap();
-        
+
         if let Some(state) = states.get(peer_id) {
             match state.circuit_breaker {
                 CircuitBreakerState::Closed => true,
@@ -189,14 +195,14 @@ impl ConnectionManager {
             true // New peer, allow connection
         }
     }
-    
+
     /// Update connection state
     fn update_state<F>(&self, peer_id: &PeerId, updater: F)
     where
         F: FnOnce(&mut ConnectionState),
     {
         let mut states = self.states.lock().unwrap();
-        
+
         let state = states.entry(*peer_id).or_insert_with(|| ConnectionState {
             peer_id: *peer_id,
             attempts: 0,
@@ -205,26 +211,26 @@ impl ConnectionManager {
             consecutive_failures: 0,
             circuit_breaker: CircuitBreakerState::Closed,
         });
-        
+
         updater(state);
     }
-    
+
     /// Get connection state for a peer
     pub fn get_state(&self, peer_id: &PeerId) -> Option<ConnectionState> {
         self.states.lock().unwrap().get(peer_id).cloned()
     }
-    
+
     /// Reset connection state for a peer
     pub fn reset_peer(&self, peer_id: &PeerId) {
         let mut states = self.states.lock().unwrap();
         states.remove(peer_id);
     }
-    
+
     /// Get all peer states
     pub fn get_all_states(&self) -> Vec<ConnectionState> {
         self.states.lock().unwrap().values().cloned().collect()
     }
-    
+
     /// Handle disconnection
     pub fn handle_disconnection(&self, peer_id: &PeerId) {
         self.update_state(peer_id, |state| {
@@ -261,7 +267,7 @@ impl ReconnectionManager {
             active_tasks: Arc::new(Mutex::new(HashMap::new())),
         }
     }
-    
+
     /// Handle peer disconnection and potentially trigger reconnection
     pub fn handle_disconnection<F, Fut>(&self, peer_id: PeerId, connect_fn: F)
     where
@@ -270,7 +276,7 @@ impl ReconnectionManager {
     {
         // Update connection state
         self.connection_manager.handle_disconnection(&peer_id);
-        
+
         // Check if we should reconnect
         let should_reconnect = match &self.strategy {
             ReconnectionStrategy::Always => true,
@@ -290,12 +296,12 @@ impl ReconnectionManager {
                 }
             }
         };
-        
+
         if should_reconnect {
             self.trigger_reconnection(peer_id, connect_fn);
         }
     }
-    
+
     /// Trigger reconnection for a peer
     fn trigger_reconnection<F, Fut>(&self, peer_id: PeerId, connect_fn: F)
     where
@@ -303,35 +309,38 @@ impl ReconnectionManager {
         Fut: std::future::Future<Output = Result<()>> + Send,
     {
         let mut tasks = self.active_tasks.lock().unwrap();
-        
+
         // Check if already reconnecting
         if tasks.contains_key(&peer_id) {
             return;
         }
-        
+
         let connection_manager = self.connection_manager.clone();
         let active_tasks = self.active_tasks.clone();
-        
+
         // Spawn reconnection task
         let task = tokio::spawn(async move {
             info!("Starting automatic reconnection for peer {}", peer_id);
-            
+
             // Wait a bit before reconnecting
             sleep(Duration::from_secs(5)).await;
-            
+
             // Attempt reconnection
-            match connection_manager.connect_with_retry(peer_id, connect_fn).await {
+            match connection_manager
+                .connect_with_retry(peer_id, connect_fn)
+                .await
+            {
                 Ok(()) => info!("Successfully reconnected to peer {}", peer_id),
                 Err(e) => error!("Failed to reconnect to peer {}: {}", peer_id, e),
             }
-            
+
             // Remove from active tasks
             active_tasks.lock().unwrap().remove(&peer_id);
         });
-        
+
         tasks.insert(peer_id, task);
     }
-    
+
     /// Cancel reconnection for a peer
     pub fn cancel_reconnection(&self, peer_id: &PeerId) {
         let mut tasks = self.active_tasks.lock().unwrap();
@@ -344,71 +353,76 @@ impl ReconnectionManager {
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     #[tokio::test]
     async fn test_successful_connection() {
         let config = RetryConfig::default();
         let manager = ConnectionManager::new(config);
         let peer_id = PeerId::random();
-        
-        let result = manager.connect_with_retry(peer_id, || async {
-            Ok(())
-        }).await;
-        
+
+        let result = manager
+            .connect_with_retry(peer_id, || async { Ok(()) })
+            .await;
+
         assert!(result.is_ok());
-        
+
         let state = manager.get_state(&peer_id).unwrap();
         assert_eq!(state.attempts, 1);
         assert_eq!(state.consecutive_failures, 0);
         assert!(matches!(state.circuit_breaker, CircuitBreakerState::Closed));
     }
-    
+
     #[tokio::test]
     async fn test_retry_with_eventual_success() {
         let mut config = RetryConfig::default();
         config.initial_delay = Duration::from_millis(10);
-        
+
         let manager = ConnectionManager::new(config);
         let peer_id = PeerId::random();
-        
+
         let attempt_count = Arc::new(Mutex::new(0));
         let attempt_count_clone = attempt_count.clone();
-        
-        let result = manager.connect_with_retry(peer_id, || {
-            let count = attempt_count_clone.clone();
-            async move {
-                let mut c = count.lock().unwrap();
-                *c += 1;
-                if *c < 3 {
-                    Err(anyhow!("Connection failed"))
-                } else {
-                    Ok(())
+
+        let result = manager
+            .connect_with_retry(peer_id, || {
+                let count = attempt_count_clone.clone();
+                async move {
+                    let mut c = count.lock().unwrap();
+                    *c += 1;
+                    if *c < 3 {
+                        Err(anyhow!("Connection failed"))
+                    } else {
+                        Ok(())
+                    }
                 }
-            }
-        }).await;
-        
+            })
+            .await;
+
         assert!(result.is_ok());
         assert_eq!(*attempt_count.lock().unwrap(), 3);
     }
-    
+
     #[tokio::test]
     async fn test_circuit_breaker_opens() {
         let mut config = RetryConfig::default();
         config.initial_delay = Duration::from_millis(10);
         config.circuit_breaker_threshold = 2;
         config.max_attempts = 5;
-        
+
         let manager = ConnectionManager::new(config);
         let peer_id = PeerId::random();
-        
-        let result = manager.connect_with_retry(peer_id, || async {
-            Err(anyhow!("Always fails"))
-        }).await;
-        
+
+        let result = manager
+            .connect_with_retry(peer_id, || async { Err(anyhow!("Always fails")) })
+            .await;
+
         assert!(result.is_err());
-        
+
         let state = manager.get_state(&peer_id).unwrap();
         assert!(state.consecutive_failures >= 2);
-        assert!(matches!(state.circuit_breaker, CircuitBreakerState::Open { .. }));
+        assert!(matches!(
+            state.circuit_breaker,
+            CircuitBreakerState::Open { .. }
+        ));
     }
 }

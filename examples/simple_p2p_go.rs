@@ -1,8 +1,11 @@
 // Simple P2P Go game networking demonstration
 // Shows how peers can discover each other and share game moves
 
-use p2pgo_core::{GameState, Color, Move as GoMove, Coord};
-use libp2p::{gossipsub, identity, mdns, noise, swarm::NetworkBehaviour, tcp, yamux, PeerId, SwarmBuilder, futures::StreamExt};
+use libp2p::{
+    futures::StreamExt, gossipsub, identity, mdns, noise, swarm::NetworkBehaviour, tcp, yamux,
+    PeerId, SwarmBuilder,
+};
+use p2pgo_core::{Color, Coord, GameState, Move as GoMove};
 use serde::{Deserialize, Serialize};
 use std::collections::hash_map::DefaultHasher;
 use std::error::Error;
@@ -51,7 +54,7 @@ impl P2PGoGame {
         // Create a move with the current player's color
         let color = self.game_state.current_player;
         let coord = Coord::new(x, y);
-        
+
         // Check if move is valid
         let idx = y * self.game_state.board_size as usize + x;
         if self.game_state.board[idx].is_some() {
@@ -59,19 +62,32 @@ impl P2PGoGame {
         }
 
         // Make the move
-        self.game_state.apply_move(GoMove::Place { x: x as u8, y: y as u8, color })
+        self.game_state
+            .apply_move(GoMove::Place {
+                x: x as u8,
+                y: y as u8,
+                color,
+            })
             .map_err(|e| format!("Invalid move: {:?}", e))?;
 
-        println!("Placed {} stone at ({}, {})", 
-            if color == Color::Black { "black" } else { "white" }, x, y);
-        
+        println!(
+            "Placed {} stone at ({}, {})",
+            if color == Color::Black {
+                "black"
+            } else {
+                "white"
+            },
+            x,
+            y
+        );
+
         Ok(())
     }
 
     fn display_board(&self) {
         println!("\nCurrent board state:");
         println!("   A B C D E F G H J K L M N O P Q R S T");
-        
+
         for y in 0..self.game_state.board_size {
             print!("{:2} ", 19 - y);
             for x in 0..self.game_state.board_size {
@@ -85,8 +101,14 @@ impl P2PGoGame {
             println!("{:2}", 19 - y);
         }
         println!("   A B C D E F G H J K L M N O P Q R S T");
-        println!("Current turn: {}", 
-            if self.game_state.current_player == Color::Black { "Black" } else { "White" });
+        println!(
+            "Current turn: {}",
+            if self.game_state.current_player == Color::Black {
+                "Black"
+            } else {
+                "White"
+            }
+        );
     }
 }
 
@@ -136,7 +158,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
             // mDNS for local peer discovery
             let mdns = mdns::tokio::Behaviour::new(
                 mdns::Config::default(),
-                keypair.public().to_peer_id()
+                keypair.public().to_peer_id(),
             )?;
 
             Ok(GameBehaviour { gossipsub, mdns })

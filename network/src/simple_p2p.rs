@@ -3,14 +3,14 @@
 //! This provides basic P2P connectivity without the full complexity
 //! of all libp2p protocols. Focus on reliability and persistence.
 
+use anyhow::{anyhow, Result};
+use libp2p::PeerId;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
-use tokio::sync::{RwLock, mpsc};
-use anyhow::{Result, anyhow};
-use libp2p::PeerId;
-use tracing::{info, warn, debug};
+use tokio::sync::{mpsc, RwLock};
+use tracing::{debug, info, warn};
 
-use crate::{GameId, game_channel::GameChannel};
+use crate::{game_channel::GameChannel, GameId};
 
 /// Simple P2P mode
 #[derive(Debug, Clone, PartialEq)]
@@ -68,12 +68,15 @@ struct PeerInfo {
 pub enum P2PEvent {
     /// Connected to game peer
     GameConnected { game_id: GameId, peer_id: PeerId },
-    /// Disconnected from game peer  
+    /// Disconnected from game peer
     GameDisconnected { game_id: GameId, peer_id: PeerId },
     /// Game discovered
     GameDiscovered { game_id: GameId, host: PeerId },
     /// Connection stats update
-    StatsUpdate { active_games: usize, connected_peers: usize },
+    StatsUpdate {
+        active_games: usize,
+        connected_peers: usize,
+    },
 }
 
 impl SimpleP2P {
@@ -84,8 +87,11 @@ impl SimpleP2P {
         event_tx: mpsc::UnboundedSender<P2PEvent>,
     ) -> Self {
         let peer_id = PeerId::from(keypair.public());
-        info!("Creating SimpleP2P with peer ID: {} in mode: {:?}", peer_id, mode);
-        
+        info!(
+            "Creating SimpleP2P with peer ID: {} in mode: {:?}",
+            peer_id, mode
+        );
+
         Self {
             peer_id,
             mode,
@@ -94,29 +100,25 @@ impl SimpleP2P {
             event_tx,
         }
     }
-    
+
     /// Start the P2P service
     pub async fn start(&mut self) -> Result<()> {
         info!("Starting SimpleP2P service");
-        
+
         // Start connection monitor
         let connections = self.game_connections.clone();
         let event_tx = self.event_tx.clone();
         tokio::spawn(async move {
             connection_monitor(connections, event_tx).await;
         });
-        
+
         Ok(())
     }
-    
+
     /// Create a new game
-    pub async fn create_game(
-        &self,
-        game_id: GameId,
-        channel: Arc<GameChannel>,
-    ) -> Result<()> {
+    pub async fn create_game(&self, game_id: GameId, channel: Arc<GameChannel>) -> Result<()> {
         info!("Creating game {} on P2P", game_id);
-        
+
         let connection = GameConnection {
             game_id: game_id.clone(),
             channel,
@@ -124,16 +126,19 @@ impl SimpleP2P {
             connected: true,
             last_activity: std::time::Instant::now(),
         };
-        
-        self.game_connections.write().await.insert(game_id.clone(), connection);
-        
+
+        self.game_connections
+            .write()
+            .await
+            .insert(game_id.clone(), connection);
+
         // In a real implementation, advertise the game
         // For now, just update stats
         self.update_stats().await?;
-        
+
         Ok(())
     }
-    
+
     /// Join a game
     pub async fn join_game(
         &self,
@@ -142,7 +147,7 @@ impl SimpleP2P {
         channel: Arc<GameChannel>,
     ) -> Result<()> {
         info!("Joining game {} hosted by {}", game_id, host_peer);
-        
+
         let connection = GameConnection {
             game_id: game_id.clone(),
             channel,
@@ -150,76 +155,82 @@ impl SimpleP2P {
             connected: false, // Not connected yet
             last_activity: std::time::Instant::now(),
         };
-        
-        self.game_connections.write().await.insert(game_id.clone(), connection);
-        
+
+        self.game_connections
+            .write()
+            .await
+            .insert(game_id.clone(), connection);
+
         // Attempt connection
         self.connect_to_peer(host_peer).await?;
-        
+
         Ok(())
     }
-    
+
     /// Connect to a peer
     async fn connect_to_peer(&self, peer_id: PeerId) -> Result<()> {
         info!("Connecting to peer {}", peer_id);
-        
+
         // In a real implementation, this would:
         // 1. Try direct connection
         // 2. Fall back to relay if needed
         // 3. Update connection state
-        
+
         // For now, simulate successful connection
         tokio::time::sleep(std::time::Duration::from_millis(100)).await;
-        
+
         // Update peer info
         let mut peers = self.known_peers.write().await;
-        peers.insert(peer_id, PeerInfo {
+        peers.insert(
             peer_id,
-            last_seen: std::time::Instant::now(),
-            games: HashSet::new(),
-        });
-        
+            PeerInfo {
+                peer_id,
+                last_seen: std::time::Instant::now(),
+                games: HashSet::new(),
+            },
+        );
+
         // Update game connections
         let mut connections = self.game_connections.write().await;
         for (game_id, conn) in connections.iter_mut() {
             if conn.remote_peer == peer_id {
                 conn.connected = true;
                 conn.last_activity = std::time::Instant::now();
-                
+
                 self.event_tx.send(P2PEvent::GameConnected {
                     game_id: game_id.clone(),
                     peer_id,
                 })?;
             }
         }
-        
+
         self.update_stats().await?;
         Ok(())
     }
-    
+
     /// Disconnect from a game
     pub async fn leave_game(&self, game_id: &GameId) -> Result<()> {
         info!("Leaving game {}", game_id);
-        
+
         self.game_connections.write().await.remove(game_id);
         self.update_stats().await?;
-        
+
         Ok(())
     }
-    
+
     /// Handle incoming move
-    pub async fn handle_move(
-        &self,
-        game_id: &GameId,
-        move_data: Vec<u8>,
-    ) -> Result<()> {
+    pub async fn handle_move(&self, game_id: &GameId, move_data: Vec<u8>) -> Result<()> {
         let connections = self.game_connections.read().await;
-        
+
         if let Some(conn) = connections.get(game_id) {
             if conn.connected {
                 // In a real implementation, deserialize and process the move
-                debug!("Received move for game {}: {} bytes", game_id, move_data.len());
-                
+                debug!(
+                    "Received move for game {}: {} bytes",
+                    game_id,
+                    move_data.len()
+                );
+
                 // Update activity
                 drop(connections);
                 let mut connections = self.game_connections.write().await;
@@ -232,30 +243,30 @@ impl SimpleP2P {
         } else {
             warn!("Received move for unknown game {}", game_id);
         }
-        
+
         Ok(())
     }
-    
+
     /// Send a move
-    pub async fn send_move(
-        &self,
-        game_id: &GameId,
-        move_data: Vec<u8>,
-    ) -> Result<()> {
+    pub async fn send_move(&self, game_id: &GameId, move_data: Vec<u8>) -> Result<()> {
         let connections = self.game_connections.read().await;
-        
+
         if let Some(conn) = connections.get(game_id) {
             if conn.connected {
                 // In a real implementation, send via libp2p
-                debug!("Sending move for game {}: {} bytes", game_id, move_data.len());
-                
+                debug!(
+                    "Sending move for game {}: {} bytes",
+                    game_id,
+                    move_data.len()
+                );
+
                 // Update activity
                 drop(connections);
                 let mut connections = self.game_connections.write().await;
                 if let Some(conn) = connections.get_mut(game_id) {
                     conn.last_activity = std::time::Instant::now();
                 }
-                
+
                 Ok(())
             } else {
                 Err(anyhow!("Game {} is not connected", game_id))
@@ -264,53 +275,51 @@ impl SimpleP2P {
             Err(anyhow!("Unknown game {}", game_id))
         }
     }
-    
+
     /// Find available games
     pub async fn discover_games(&self, board_size: Option<u8>) -> Result<Vec<(GameId, PeerId)>> {
         // In a real implementation, this would:
         // 1. Query mDNS for local games
         // 2. Query DHT for global games
         // 3. Check relay servers
-        
+
         // For now, return empty list
         Ok(vec![])
     }
-    
+
     /// Get connection statistics
     pub async fn get_stats(&self) -> (usize, usize) {
         let connections = self.game_connections.read().await;
         let active_games = connections.len();
-        let connected_games = connections.values()
-            .filter(|c| c.connected)
-            .count();
-        
+        let connected_games = connections.values().filter(|c| c.connected).count();
+
         (active_games, connected_games)
     }
-    
+
     /// Update statistics
     async fn update_stats(&self) -> Result<()> {
         let (active, connected) = self.get_stats().await;
-        
+
         self.event_tx.send(P2PEvent::StatsUpdate {
             active_games: active,
             connected_peers: connected,
         })?;
-        
+
         Ok(())
     }
-    
+
     /// Get P2P mode
     pub fn mode(&self) -> &P2PMode {
         &self.mode
     }
-    
+
     /// Set P2P mode
     pub async fn set_mode(&mut self, mode: P2PMode) -> Result<()> {
         info!("Changing P2P mode from {:?} to {:?}", self.mode, mode);
         self.mode = mode;
-        
+
         // In a real implementation, this would reconfigure networking
-        
+
         Ok(())
     }
 }
@@ -321,28 +330,33 @@ async fn connection_monitor(
     event_tx: mpsc::UnboundedSender<P2PEvent>,
 ) {
     let mut interval = tokio::time::interval(std::time::Duration::from_secs(10));
-    
+
     loop {
         interval.tick().await;
-        
+
         let now = std::time::Instant::now();
         let mut to_reconnect = vec![];
-        
+
         {
             let connections = connections.read().await;
             for (game_id, conn) in connections.iter() {
                 // Check for stale connections
-                if conn.connected && now.duration_since(conn.last_activity) > std::time::Duration::from_secs(60) {
+                if conn.connected
+                    && now.duration_since(conn.last_activity) > std::time::Duration::from_secs(60)
+                {
                     warn!("Game {} appears stale, marking for reconnection", game_id);
                     to_reconnect.push((game_id.clone(), conn.remote_peer));
                 }
             }
         }
-        
+
         // Attempt reconnections
         for (game_id, peer_id) in to_reconnect {
-            info!("Attempting to reconnect game {} to peer {}", game_id, peer_id);
-            
+            info!(
+                "Attempting to reconnect game {} to peer {}",
+                game_id, peer_id
+            );
+
             // In a real implementation, attempt reconnection
             // For now, just mark as disconnected
             let mut connections = connections.write().await;

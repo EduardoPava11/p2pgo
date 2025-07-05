@@ -15,9 +15,7 @@ pub enum View {
         board_size: u8,
     },
     /// Lobby waiting for opponent
-    Lobby {
-        game_id: String,
-    },
+    Lobby { game_id: String },
     /// Active game in progress
     Game {
         game_id: String,

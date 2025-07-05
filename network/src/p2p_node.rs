@@ -142,26 +142,26 @@ impl P2PNode {
     ) -> Result<Self> {
         let peer_id = PeerId::from(keypair.public());
         info!("Creating P2P node with peer ID: {}", peer_id);
-        
+
         // Build transport
         let transport = libp2p::tokio_development_transport(keypair.clone())?;
-        
+
         // Create behaviour
         let behaviour = Self::create_behaviour(&keypair, &config, peer_id)?;
-        
+
         // Create swarm
         let mut swarm = SwarmBuilder::with_tokio_executor(transport, behaviour, peer_id).build();
-        
+
         // Listen on configured addresses
         for addr in &config.listen_addresses {
             swarm.listen_on(addr.clone())?;
         }
-        
+
         // Create connection manager
         let connection_manager = Arc::new(
             crate::connection_manager::ConnectionManager::new(Default::default())
         );
-        
+
         Ok(Self {
             swarm,
             config,
@@ -172,7 +172,7 @@ impl P2PNode {
             connection_manager,
         })
     }
-    
+
     /// Create the network behaviour
     fn create_behaviour(
         keypair: &Keypair,
@@ -187,10 +187,10 @@ impl P2PNode {
             MemoryStore::new(peer_id),
             kad_config,
         );
-        
+
         // Relay client - everyone can use relays
         let relay_client = relay::client::Behaviour::new(peer_id);
-        
+
         // Relay server - optional based on mode
         let relay_server = match &config.relay_mode {
             RelayMode::Provider { max_reservations, max_circuits } => {
@@ -208,38 +208,38 @@ impl P2PNode {
             }
             _ => None,
         };
-        
+
         // DCUtR for connection upgrade
         let dcutr = dcutr::Behaviour::new(peer_id);
-        
+
         // Identify protocol
         let identify = Identify::new(IdentifyConfig::new(
             "/p2pgo/1.0.0".to_string(),
             keypair.public(),
         ));
-        
+
         // AutoNAT for NAT detection
         let autonat = Autonat::new(peer_id, Default::default());
-        
+
         // GossipSub for game state propagation
         let gossipsub_config = GossipsubConfigBuilder::default()
             .heartbeat_interval(Duration::from_secs(10))
             .validation_mode(libp2p::gossipsub::ValidationMode::Strict)
             .build()
             .expect("Valid gossipsub config");
-            
+
         let gossipsub = Gossipsub::new(
             MessageAuthenticity::Signed(keypair.clone()),
             gossipsub_config,
         ).expect("Valid gossipsub");
-        
+
         // mDNS for local discovery
         let mdns = if config.enable_mdns {
             Some(Mdns::new(Default::default())?)
         } else {
             None
         };
-        
+
         Ok(P2PBehaviour {
             kademlia,
             relay_client,
@@ -251,31 +251,31 @@ impl P2PNode {
             mdns,
         })
     }
-    
+
     /// Start the P2P node
     pub async fn start(&mut self) -> Result<()> {
         info!("Starting P2P node");
-        
+
         // Bootstrap if we have bootstrap nodes
         if !self.config.bootstrap_nodes.is_empty() {
             self.bootstrap().await?;
         }
-        
+
         // Start discovering relays if not in minimal mode
         if self.config.relay_mode != RelayMode::Minimal {
             self.start_relay_discovery().await?;
         }
-        
+
         // Subscribe to game topics
         self.swarm.behaviour_mut().gossipsub.subscribe(&gossipsub_topic("games"))?;
-        
+
         Ok(())
     }
-    
+
     /// Bootstrap with known nodes
     async fn bootstrap(&mut self) -> Result<()> {
         info!("Bootstrapping with {} nodes", self.config.bootstrap_nodes.len());
-        
+
         for addr in &self.config.bootstrap_nodes {
             if let Some(peer_id) = addr.iter().find_map(|p| {
                 if let libp2p::multiaddr::Protocol::P2p(hash) = p {
@@ -288,48 +288,48 @@ impl P2PNode {
                 self.swarm.dial(addr.clone())?;
             }
         }
-        
+
         // Bootstrap Kademlia
         self.swarm.behaviour_mut().kademlia.bootstrap()?;
-        
+
         Ok(())
     }
-    
+
     /// Start discovering relay servers
     async fn start_relay_discovery(&mut self) -> Result<()> {
         info!("Starting relay discovery");
-        
+
         // Query DHT for relay providers
         let key = libp2p::kad::RecordKey::new(&b"relay-servers"[..]);
         self.swarm.behaviour_mut().kademlia.get_providers(key);
-        
+
         // If we're a relay provider, advertise ourselves
         if matches!(self.config.relay_mode, RelayMode::Provider { .. }) {
             self.advertise_as_relay().await?;
         }
-        
+
         Ok(())
     }
-    
+
     /// Advertise as a relay server
     async fn advertise_as_relay(&mut self) -> Result<()> {
         info!("Advertising as relay server");
-        
+
         let key = libp2p::kad::RecordKey::new(&b"relay-servers"[..]);
         self.swarm.behaviour_mut().kademlia.start_providing(key)?;
-        
+
         Ok(())
     }
-    
+
     /// Connect to a peer, using relay if necessary
     pub async fn connect_peer(&mut self, peer_id: PeerId, addresses: Vec<Multiaddr>) -> Result<()> {
         info!("Attempting to connect to peer {}", peer_id);
-        
+
         // Add addresses to Kademlia
         for addr in &addresses {
             self.swarm.behaviour_mut().kademlia.add_address(&peer_id, addr.clone());
         }
-        
+
         // Use connection manager for robust connection
         let swarm = &mut self.swarm;
         self.connection_manager.connect_with_retry(
@@ -343,7 +343,7 @@ impl P2PNode {
                         return Ok(());
                     }
                 }
-                
+
                 // If direct fails, try via relay
                 if !self.relay_reservations.read().await.is_empty() {
                     info!("Direct connection failed, trying via relay");
@@ -354,17 +354,17 @@ impl P2PNode {
             }
         ).await
     }
-    
+
     /// Connect to a peer via relay
     async fn connect_via_relay(&mut self, target: PeerId) -> Result<()> {
         let reservations = self.relay_reservations.read().await;
-        
+
         for (relay_peer, reservation) in reservations.iter() {
             if reservation.expiry > std::time::Instant::now() {
                 // Build relay address
                 let relay_addr = format!("/p2p/{}/p2p-circuit/p2p/{}", relay_peer, target)
                     .parse::<Multiaddr>()?;
-                
+
                 if let Err(e) = self.swarm.dial(relay_addr) {
                     warn!("Failed to dial via relay {}: {}", relay_peer, e);
                 } else {
@@ -373,20 +373,20 @@ impl P2PNode {
                 }
             }
         }
-        
+
         Err(anyhow!("No active relay reservations available"))
     }
-    
+
     /// Make a relay reservation
     pub async fn reserve_relay(&mut self, relay_peer: PeerId) -> Result<()> {
         info!("Requesting relay reservation from {}", relay_peer);
-        
+
         // This will trigger the relay protocol
         // The actual reservation will be confirmed via swarm events
-        
+
         Ok(())
     }
-    
+
     /// Publish a game to the network
     pub async fn publish_game(&mut self, game_id: &str, metadata: GameMetadata) -> Result<()> {
         // Store in DHT
@@ -397,35 +397,35 @@ impl P2PNode {
             publisher: None,
             expires: None,
         };
-        
+
         self.swarm.behaviour_mut().kademlia.put_record(record, libp2p::kad::Quorum::One)?;
-        
+
         // Announce via GossipSub
         let message = serde_json::to_vec(&GameAnnouncement {
             game_id: game_id.to_string(),
             metadata,
         })?;
-        
+
         self.swarm.behaviour_mut().gossipsub.publish(gossipsub_topic("games"), message)?;
-        
+
         info!("Published game {} to P2P network", game_id);
         Ok(())
     }
-    
+
     /// Find available games
     pub async fn find_games(&mut self, board_size: Option<u8>) -> Result<()> {
         let pattern = match board_size {
             Some(size) => format!("/games/size/{}", size),
             None => "/games/".to_string(),
         };
-        
+
         self.swarm.behaviour_mut().kademlia.start_providing(
             libp2p::kad::RecordKey::new(&pattern)
         )?;
-        
+
         Ok(())
     }
-    
+
     /// Handle swarm events
     pub async fn handle_events(&mut self) -> Result<()> {
         loop {
@@ -446,7 +446,7 @@ impl P2PNode {
             }
         }
     }
-    
+
     /// Handle behaviour events
     async fn handle_behaviour_event(&mut self, event: P2PBehaviourEvent) -> Result<()> {
         match event {
@@ -459,7 +459,7 @@ impl P2PNode {
         }
         Ok(())
     }
-    
+
     /// Handle Kademlia events
     async fn handle_kad_event(&mut self, event: KademliaEvent) -> Result<()> {
         match event {
@@ -468,7 +468,7 @@ impl P2PNode {
                     libp2p::kad::QueryResult::GetProviders(Ok(result)) => {
                         let providers: Vec<_> = result.providers().collect();
                         info!("Found {} providers", providers.len());
-                        
+
                         // Check if these are relay providers
                         for peer in providers {
                             self.check_relay_capability(peer).await?;
@@ -481,24 +481,24 @@ impl P2PNode {
         }
         Ok(())
     }
-    
+
     /// Handle identify events
     async fn handle_identify_event(&mut self, event: IdentifyEvent) -> Result<()> {
         match event {
             IdentifyEvent::Received { peer_id, info } => {
                 debug!("Identified peer {}: {:?}", peer_id, info.protocol_version);
-                
+
                 // Check if peer supports relay
                 if info.protocols.iter().any(|p| p.as_bytes() == b"/libp2p/circuit/relay/0.2.0/hop") {
                     info!("Peer {} supports relay service", peer_id);
-                    
+
                     let relay_info = RelayInfo {
                         peer_id,
                         addresses: info.listen_addrs,
                         last_seen: std::time::Instant::now(),
                         quality_score: 1.0,
                     };
-                    
+
                     self.known_relays.write().await.insert(peer_id, relay_info);
                     self.event_tx.send(P2PEvent::RelayDiscovered {
                         peer_id,
@@ -510,19 +510,19 @@ impl P2PNode {
         }
         Ok(())
     }
-    
+
     /// Handle relay client events
     async fn handle_relay_client_event(&mut self, event: relay::client::Event) -> Result<()> {
         match event {
             relay::client::Event::ReservationReqAccepted { relay_peer_id, .. } => {
                 info!("Relay reservation accepted by {}", relay_peer_id);
-                
+
                 let reservation = RelayReservation {
                     relay_peer: relay_peer_id,
                     expiry: std::time::Instant::now() + Duration::from_secs(3600),
                     circuit_count: 0,
                 };
-                
+
                 self.relay_reservations.write().await.insert(relay_peer_id, reservation);
                 self.event_tx.send(P2PEvent::RelayReserved { relay_peer: relay_peer_id })?;
             }
@@ -530,13 +530,13 @@ impl P2PNode {
         }
         Ok(())
     }
-    
+
     /// Handle gossipsub events
     async fn handle_gossipsub_event(&mut self, event: GossipsubEvent) -> Result<()> {
         match event {
             GossipsubEvent::Message { propagation_source, message_id, message } => {
                 debug!("Received gossip message from {}: {:?}", propagation_source, message_id);
-                
+
                 self.event_tx.send(P2PEvent::GossipReceived {
                     topic: message.topic.to_string(),
                     data: message.data,
@@ -546,7 +546,7 @@ impl P2PNode {
         }
         Ok(())
     }
-    
+
     /// Handle mDNS events
     async fn handle_mdns_event(&mut self, event: MdnsEvent) -> Result<()> {
         match event {
@@ -564,44 +564,44 @@ impl P2PNode {
         }
         Ok(())
     }
-    
+
     /// Handle connection established
     async fn handle_connection_established(&mut self, peer_id: PeerId) -> Result<()> {
         info!("Connection established with {}", peer_id);
-        
+
         self.connected_peers.write().await.insert(peer_id);
         self.connection_manager.handle_disconnection(&peer_id);
         self.event_tx.send(P2PEvent::PeerConnected { peer_id })?;
-        
+
         // Check if this is a relay server
         self.check_relay_capability(peer_id).await?;
-        
+
         Ok(())
     }
-    
+
     /// Handle connection closed
     async fn handle_connection_closed(&mut self, peer_id: PeerId) -> Result<()> {
         info!("Connection closed with {}", peer_id);
-        
+
         self.connected_peers.write().await.remove(&peer_id);
         self.connection_manager.handle_disconnection(&peer_id);
         self.event_tx.send(P2PEvent::PeerDisconnected { peer_id })?;
-        
+
         Ok(())
     }
-    
+
     /// Check if a peer provides relay service
     async fn check_relay_capability(&mut self, peer_id: PeerId) -> Result<()> {
         // This will trigger an identify exchange
         // The actual capability check happens in handle_identify_event
         Ok(())
     }
-    
+
     /// Get connected peers
     pub async fn connected_peers(&self) -> Vec<PeerId> {
         self.connected_peers.read().await.iter().cloned().collect()
     }
-    
+
     /// Get known relay servers
     pub async fn known_relays(&self) -> Vec<(PeerId, Vec<Multiaddr>)> {
         self.known_relays.read().await

@@ -1,9 +1,9 @@
 //! Game classification for federated learning value assessment
 
-use serde::{Serialize, Deserialize};
-use p2pgo_core::{GameState, Move};
-use std::collections::HashMap;
 use anyhow::Result;
+use p2pgo_core::{GameState, Move};
+use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 
 /// Classification of a game for federated learning
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -41,13 +41,13 @@ pub enum GameType {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum Lesson {
     /// Opening theory demonstration
-    OpeningTheory { 
+    OpeningTheory {
         joseki_name: String,
         variation: String,
         accuracy: f32,
     },
     /// Middle game strategic concept
-    MiddleGameStrategy { 
+    MiddleGameStrategy {
         concept: String,
         demonstration_quality: f32,
     },
@@ -155,7 +155,7 @@ pub struct GameClassifier {
 pub trait PositionEvaluator: Send + Sync {
     /// Evaluate a position
     fn evaluate(&self, state: &GameState) -> f32;
-    
+
     /// Get best moves for a position
     fn get_best_moves(&self, state: &GameState, count: usize) -> Vec<(Move, f32)>;
 }
@@ -203,29 +203,25 @@ impl GameClassifier {
             _pattern_matcher: PatternMatcher::default(),
         }
     }
-    
+
     /// Classify a completed game
     pub fn classify_game(&self, game_record: &GameRecord) -> Result<ClassifiedGame> {
         // Extract player information
         let players = self.extract_player_info(game_record)?;
-        
+
         // Analyze game progression
         let (metrics, turning_points) = self.analyze_game_progression(game_record)?;
-        
+
         // Identify lessons
         let lessons = self.identify_lessons(game_record)?;
-        
+
         // Determine game type
         let game_type = self.determine_game_type(&players, &metrics);
-        
+
         // Calculate teaching value
-        let teaching_value = self.calculate_teaching_value(
-            &game_type,
-            &lessons,
-            &turning_points,
-            &metrics,
-        );
-        
+        let teaching_value =
+            self.calculate_teaching_value(&game_type, &lessons, &turning_points, &metrics);
+
         Ok(ClassifiedGame {
             game_id: game_record.game_id.clone(),
             game_type,
@@ -236,12 +232,12 @@ impl GameClassifier {
             metrics,
         })
     }
-    
+
     /// Extract player information from game record
     fn extract_player_info(&self, game_record: &GameRecord) -> Result<PlayerInfo> {
-        let elo_differential = (game_record.black_elo.unwrap_or(1500) - 
-                               game_record.white_elo.unwrap_or(1500)).abs();
-        
+        let elo_differential =
+            (game_record.black_elo.unwrap_or(1500) - game_record.white_elo.unwrap_or(1500)).abs();
+
         Ok(PlayerInfo {
             black_elo: game_record.black_elo,
             white_elo: game_record.white_elo,
@@ -253,7 +249,7 @@ impl GameClassifier {
             },
         })
     }
-    
+
     /// Analyze game progression for metrics and turning points
     fn analyze_game_progression(
         &self,
@@ -263,25 +259,25 @@ impl GameClassifier {
         let mut mistakes = (0u32, 0u32);
         let mut turning_points = Vec::new();
         let mut ai_matches = 0u32;
-        
+
         // Replay game and evaluate each position
         let mut state = GameState::new(game_record.board_size);
-        
+
         for (i, game_move) in game_record.moves.iter().enumerate() {
             // Get AI recommendation
             let best_moves = self.evaluator.get_best_moves(&state, 3);
-            
+
             // Check if move matches AI
             if best_moves.iter().any(|(m, _)| m == game_move) {
                 ai_matches += 1;
             }
-            
+
             // Apply move
             let _ = state.apply_move(game_move.clone())?;
-            
+
             // Evaluate position
             let eval = self.evaluator.evaluate(&state);
-            
+
             // Check for turning points
             if i > 0 {
                 let eval_change = eval - evaluations.last().unwrap();
@@ -293,7 +289,7 @@ impl GameClassifier {
                         recovery_quality: None, // Calculate in next moves
                     });
                 }
-                
+
                 // Count mistakes
                 if eval_change.abs() > 5.0 {
                     if i % 2 == 0 && eval_change < 0.0 {
@@ -303,16 +299,18 @@ impl GameClassifier {
                     }
                 }
             }
-            
+
             evaluations.push(eval);
         }
-        
+
         // Calculate variance
         let mean_eval = evaluations.iter().sum::<f32>() / evaluations.len() as f32;
-        let variance = evaluations.iter()
+        let variance = evaluations
+            .iter()
             .map(|e| (e - mean_eval).powi(2))
-            .sum::<f32>() / evaluations.len() as f32;
-        
+            .sum::<f32>()
+            / evaluations.len() as f32;
+
         let metrics = GameMetrics {
             total_moves: game_record.moves.len() as u32,
             mistakes,
@@ -320,26 +318,29 @@ impl GameClassifier {
             ai_agreement_rate: ai_matches as f32 / game_record.moves.len() as f32,
             phase_distribution: self.calculate_phase_distribution(game_record.moves.len()),
         };
-        
+
         Ok((metrics, turning_points))
     }
-    
+
     /// Identify specific lessons in the game
     fn identify_lessons(&self, game_record: &GameRecord) -> Result<Vec<Lesson>> {
         let mut lessons = Vec::new();
-        
+
         // Check opening
-        if let Some(joseki) = self.opening_book.identify_joseki(&game_record.moves[..20.min(game_record.moves.len())]) {
+        if let Some(joseki) = self
+            .opening_book
+            .identify_joseki(&game_record.moves[..20.min(game_record.moves.len())])
+        {
             lessons.push(Lesson::OpeningTheory {
                 joseki_name: joseki.name,
                 variation: "Main".to_string(),
                 accuracy: 0.9, // Calculate based on deviation
             });
         }
-        
+
         // Check for tactical sequences
         // This would use pattern matching on the game
-        
+
         // Check endgame
         if game_record.moves.len() > 150 {
             // Analyze endgame quality
@@ -348,10 +349,10 @@ impl GameClassifier {
                 points_gained: 5,
             });
         }
-        
+
         Ok(lessons)
     }
-    
+
     /// Determine game type based on metrics
     fn determine_game_type(&self, players: &PlayerInfo, metrics: &GameMetrics) -> GameType {
         if players.elo_differential > 200 && metrics.evaluation_variance < 10.0 {
@@ -364,7 +365,7 @@ impl GameClassifier {
             GameType::LowValue
         }
     }
-    
+
     /// Calculate teaching value score
     fn calculate_teaching_value(
         &self,
@@ -379,19 +380,19 @@ impl GameClassifier {
             GameType::Standard => 0.4,
             GameType::LowValue => 0.1,
         };
-        
+
         // Bonus for clear lessons
         let lesson_bonus = (lessons.len() as f32 * 0.05).min(0.2);
-        
+
         // Bonus for interesting turning points
         let turning_bonus = (turning_points.len() as f32 * 0.02).min(0.1);
-        
+
         // Penalty for too many mistakes
         let mistake_penalty = ((metrics.mistakes.0 + metrics.mistakes.1) as f32 * 0.01).min(0.2);
-        
+
         (base_value + lesson_bonus + turning_bonus - mistake_penalty).clamp(0.0, 1.0)
     }
-    
+
     /// Classify a move based on evaluation change
     fn classify_move(&self, eval_change: f32) -> MoveClassification {
         match eval_change.abs() {
@@ -408,13 +409,17 @@ impl GameClassifier {
             }
         }
     }
-    
+
     /// Calculate game phase distribution
     fn calculate_phase_distribution(&self, total_moves: usize) -> PhaseDistribution {
         let opening_moves = 30.min(total_moves);
-        let endgame_moves = if total_moves > 150 { total_moves - 150 } else { 0 };
+        let endgame_moves = if total_moves > 150 {
+            total_moves - 150
+        } else {
+            0
+        };
         let middle_moves = total_moves - opening_moves - endgame_moves;
-        
+
         PhaseDistribution {
             opening: opening_moves as f32 / total_moves as f32,
             middle_game: middle_moves as f32 / total_moves as f32,
@@ -463,7 +468,7 @@ impl Default for OpeningBook {
     fn default() -> Self {
         // Load common joseki patterns
         let mut joseki_database = HashMap::new();
-        
+
         // Add some basic patterns
         joseki_database.insert(
             "3-3-invasion".to_string(),
@@ -473,8 +478,10 @@ impl Default for OpeningBook {
                 variations: vec![],
             },
         );
-        
-        Self { _joseki_database: joseki_database }
+
+        Self {
+            _joseki_database: joseki_database,
+        }
     }
 }
 

@@ -2,7 +2,7 @@
 
 //! CBOR roundtrip tests for MoveRecord
 
-use p2pgo_core::{MoveRecord, Tag, Move, Coord};
+use p2pgo_core::{Coord, Move, MoveRecord, Tag};
 use serde_cbor;
 
 #[test]
@@ -13,14 +13,14 @@ fn test_move_record_cbor_roundtrip() {
         1234567890,
         None, // prev_hash
     );
-    
+
     // Serialize to CBOR
     let cbor_data = serde_cbor::to_vec(&original).expect("Failed to serialize to CBOR");
-    
+
     // Deserialize from CBOR
-    let deserialized: MoveRecord = serde_cbor::from_slice(&cbor_data)
-        .expect("Failed to deserialize from CBOR");
-    
+    let deserialized: MoveRecord =
+        serde_cbor::from_slice(&cbor_data).expect("Failed to deserialize from CBOR");
+
     // Verify roundtrip
     assert_eq!(original.mv, deserialized.mv);
     assert_eq!(original.tag, deserialized.tag);
@@ -45,11 +45,11 @@ fn test_move_record_without_tag() {
         9876543210,
         None, // prev_hash
     );
-    
+
     let cbor_data = serde_cbor::to_vec(&original).expect("Failed to serialize");
-    let deserialized: MoveRecord = serde_cbor::from_slice(&cbor_data)
-        .expect("Failed to deserialize");
-    
+    let deserialized: MoveRecord =
+        serde_cbor::from_slice(&cbor_data).expect("Failed to deserialize");
+
     assert_eq!(original.mv, deserialized.mv);
     assert_eq!(original.tag, deserialized.tag);
     assert_eq!(original.ts, deserialized.ts);
@@ -60,7 +60,7 @@ fn test_move_record_without_tag() {
 #[test]
 fn test_all_tag_variants_roundtrip() {
     let tags = vec![Tag::Activity, Tag::Avoidance, Tag::Reactivity];
-    
+
     for tag in tags {
         let original = MoveRecord::new(
             Move::Place(Coord::new(0, 0)),
@@ -68,11 +68,11 @@ fn test_all_tag_variants_roundtrip() {
             1000,
             None, // prev_hash
         );
-        
+
         let cbor_data = serde_cbor::to_vec(&original).expect("Failed to serialize");
-        let deserialized: MoveRecord = serde_cbor::from_slice(&cbor_data)
-            .expect("Failed to deserialize");
-        
+        let deserialized: MoveRecord =
+            serde_cbor::from_slice(&cbor_data).expect("Failed to deserialize");
+
         assert_eq!(original.tag, deserialized.tag);
     }
 }

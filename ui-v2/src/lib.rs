@@ -1,32 +1,32 @@
 //! P2P Go UI v2 - Clean architecture with proper abstraction layers
 
-pub mod core;
-pub mod widgets;
-pub mod features;
 pub mod app;
+pub mod core;
+pub mod features;
 pub mod training;
+pub mod widgets;
 
 // Re-export main app
 pub use app::P2PGoApp;
 
-use tokio::sync::mpsc::{unbounded_channel, UnboundedSender, UnboundedReceiver};
-use p2pgo_ui_egui::msg::{UiToNet, NetToUi};
+use p2pgo_ui_egui::msg::{NetToUi, UiToNet};
+use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender};
 
 // Run function for the wrapper
 pub fn run() -> Result<(), Box<dyn std::error::Error>> {
     use eframe::NativeOptions;
-    
+
     // Configure logging
     tracing_subscriber::fmt::init();
-    
+
     // Setup channels for communication between UI and worker
     let (ui_tx, net_rx) = unbounded_channel::<UiToNet>();
     let (net_tx, ui_rx) = unbounded_channel::<NetToUi>();
-    
+
     // Default values
     let board_size = 9u8;
     let player_name = "Player".to_string();
-    
+
     // Spawn background worker
     let _worker_handle = p2pgo_ui_egui::worker::spawn_worker(
         net_rx,
@@ -34,7 +34,7 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
         board_size,
         player_name.clone(),
     )?;
-    
+
     // Window options
     let options = NativeOptions {
         viewport: egui::ViewportBuilder::default()
@@ -44,14 +44,14 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
             .with_icon(get_icon()),
         ..Default::default()
     };
-    
+
     // Run app
     eframe::run_native(
         "P2P Go",
         options,
         Box::new(move |cc| Ok(Box::new(P2PGoApp::new(cc, ui_tx, ui_rx)))),
     )?;
-    
+
     Ok(())
 }
 
@@ -59,7 +59,7 @@ fn get_icon() -> egui::IconData {
     // Simple black and white icon
     let size = 32usize;
     let mut pixels = vec![0u8; size * size * 4];
-    
+
     // Draw a simple Go stone pattern
     for y in 0..size {
         for x in 0..size {
@@ -69,7 +69,7 @@ fn get_icon() -> egui::IconData {
             let dx = x as f32 - center;
             let dy = y as f32 - center;
             let dist = (dx * dx + dy * dy).sqrt();
-            
+
             if dist < radius {
                 // Black stone
                 pixels[idx] = 20;
@@ -82,7 +82,7 @@ fn get_icon() -> egui::IconData {
             }
         }
     }
-    
+
     egui::IconData {
         rgba: pixels,
         width: size as u32,

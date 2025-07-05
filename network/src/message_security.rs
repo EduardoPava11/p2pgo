@@ -1,12 +1,12 @@
 //! Message security layer for P2P communications
 //! Ensures all messages are properly signed and validated
 
-use ed25519_dalek::{Signature, Signer, SigningKey, Verifier, VerifyingKey};
-use serde::{Serialize, Deserialize};
-use std::time::{SystemTime, UNIX_EPOCH, Duration};
+use anyhow::{anyhow, Result};
 use blake3::Hasher;
+use ed25519_dalek::{Signature, Signer, SigningKey, Verifier, VerifyingKey};
 use libp2p::PeerId;
-use anyhow::{Result, anyhow};
+use serde::{Deserialize, Serialize};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 /// Maximum age of a message before it's considered stale
 const MAX_MESSAGE_AGE: Duration = Duration::from_secs(300); // 5 minutes
@@ -48,19 +48,17 @@ impl MessageSecurity {
             max_cache_size: 10000,
         }
     }
-    
+
     /// Sign a message
     pub fn sign_message<T: Serialize + Clone>(&mut self, payload: &T) -> Result<SignedMessage<T>> {
         // Generate timestamp
-        let timestamp = SystemTime::now()
-            .duration_since(UNIX_EPOCH)?
-            .as_secs();
-        
+        let timestamp = SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs();
+
         // Generate random nonce
         let mut nonce = [0u8; 16];
         use rand::Rng;
         rand::thread_rng().fill(&mut nonce);
-        
+
         // Create message without signature
         let mut message = SignedMessage {
             payload: payload.clone(),
@@ -69,19 +67,19 @@ impl MessageSecurity {
             nonce,
             signature: vec![],
         };
-        
+
         // Calculate signature
         let sig_data = self.get_signing_data(&message)?;
         let signature = self.signing_key.sign(&sig_data);
         message.signature = signature.to_bytes().to_vec();
-        
+
         // Add to recent messages
         let msg_hash = self.hash_message(&message)?;
         self.add_to_cache(msg_hash);
-        
+
         Ok(message)
     }
-    
+
     /// Verify a received message
     pub fn verify_message<T: Serialize + Clone + for<'de> Deserialize<'de>>(
         &mut self,
@@ -89,37 +87,39 @@ impl MessageSecurity {
         sender_key: &VerifyingKey,
     ) -> Result<()> {
         // Check timestamp
-        let current_time = SystemTime::now()
-            .duration_since(UNIX_EPOCH)?
-            .as_secs();
-        
+        let current_time = SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs();
+
         let message_age = current_time.saturating_sub(message.timestamp);
         if message_age > MAX_MESSAGE_AGE.as_secs() {
             return Err(anyhow!("Message too old: {} seconds", message_age));
         }
-        
+
         // Check for replay
         let msg_hash = self.hash_message(message)?;
         if self.recent_messages.contains(&msg_hash) {
             return Err(anyhow!("Duplicate message detected"));
         }
-        
+
         // Verify signature
         let sig_data = self.get_signing_data(message)?;
         let signature = Signature::from_slice(&message.signature)
             .map_err(|e| anyhow!("Invalid signature format: {}", e))?;
-        
-        sender_key.verify(&sig_data, &signature)
+
+        sender_key
+            .verify(&sig_data, &signature)
             .map_err(|e| anyhow!("Signature verification failed: {}", e))?;
-        
+
         // Add to recent messages
         self.add_to_cache(msg_hash);
-        
+
         Ok(())
     }
-    
+
     /// Get data to be signed for a message
-    fn get_signing_data<T: Serialize + Clone>(&self, message: &SignedMessage<T>) -> Result<Vec<u8>> {
+    fn get_signing_data<T: Serialize + Clone>(
+        &self,
+        message: &SignedMessage<T>,
+    ) -> Result<Vec<u8>> {
         // Create a copy without signature for signing
         let signing_msg = SignedMessage {
             payload: message.payload.clone(),
@@ -128,12 +128,12 @@ impl MessageSecurity {
             nonce: message.nonce,
             signature: vec![], // Empty signature for signing
         };
-        
+
         // Serialize to CBOR for consistent encoding
         serde_cbor::to_vec(&signing_msg)
             .map_err(|e| anyhow!("Failed to serialize for signing: {}", e))
     }
-    
+
     /// Hash a message for deduplication
     fn hash_message<T: Serialize>(&self, message: &SignedMessage<T>) -> Result<[u8; 32]> {
         let data = serde_cbor::to_vec(message)?;
@@ -141,7 +141,7 @@ impl MessageSecurity {
         hasher.update(&data);
         Ok(hasher.finalize().into())
     }
-    
+
     /// Add message hash to cache with size limit
     fn add_to_cache(&mut self, hash: [u8; 32]) {
         if self.recent_messages.len() >= self.max_cache_size {
@@ -185,13 +185,13 @@ mod tests {
     use ed25519_dalek::SigningKey;
     use rand::rngs::OsRng;
     use rand::RngCore;
-    
+
     #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
     struct TestMessage {
         content: String,
         value: u32,
     }
-    
+
     #[test]
     fn test_sign_and_verify() {
         let mut csprng = OsRng;
@@ -200,17 +200,17 @@ mod tests {
         let signing_key = SigningKey::from_bytes(&key_bytes);
         let verifying_key = signing_key.verifying_key();
         let peer_id = PeerId::random();
-        
+
         let mut security = MessageSecurity::new(signing_key, peer_id);
-        
+
         let msg = TestMessage {
             content: "Hello P2P".to_string(),
             value: 42,
         };
-        
+
         // Sign message
         let signed = security.sign_message(&msg).unwrap();
-        
+
         // Verify message
         let mut verifier_key_bytes = [0u8; 32];
         csprng.fill_bytes(&mut verifier_key_bytes);
@@ -218,7 +218,7 @@ mod tests {
         let mut verifier = MessageSecurity::new(verifier_key, PeerId::random());
         verifier.verify_message(&signed, &verifying_key).unwrap();
     }
-    
+
     #[test]
     fn test_replay_protection() {
         let mut csprng = OsRng;
@@ -227,28 +227,28 @@ mod tests {
         let signing_key = SigningKey::from_bytes(&key_bytes);
         let verifying_key = signing_key.verifying_key();
         let peer_id = PeerId::random();
-        
+
         let mut security = MessageSecurity::new(signing_key, peer_id);
-        
+
         let msg = TestMessage {
             content: "Test".to_string(),
             value: 1,
         };
-        
+
         let signed = security.sign_message(&msg).unwrap();
-        
+
         let mut verifier_key_bytes = [0u8; 32];
         csprng.fill_bytes(&mut verifier_key_bytes);
         let verifier_key = SigningKey::from_bytes(&verifier_key_bytes);
         let mut verifier = MessageSecurity::new(verifier_key, PeerId::random());
-        
+
         // First verification should succeed
         verifier.verify_message(&signed, &verifying_key).unwrap();
-        
+
         // Second verification should fail (replay)
         assert!(verifier.verify_message(&signed, &verifying_key).is_err());
     }
-    
+
     #[test]
     fn test_tamper_detection() {
         let mut csprng = OsRng;
@@ -257,24 +257,24 @@ mod tests {
         let signing_key = SigningKey::from_bytes(&key_bytes);
         let verifying_key = signing_key.verifying_key();
         let peer_id = PeerId::random();
-        
+
         let mut security = MessageSecurity::new(signing_key, peer_id);
-        
+
         let msg = TestMessage {
             content: "Original".to_string(),
             value: 100,
         };
-        
+
         let mut signed = security.sign_message(&msg).unwrap();
-        
+
         // Tamper with message
         signed.payload.value = 200;
-        
+
         let mut verifier_key_bytes = [0u8; 32];
         csprng.fill_bytes(&mut verifier_key_bytes);
         let verifier_key = SigningKey::from_bytes(&verifier_key_bytes);
         let mut verifier = MessageSecurity::new(verifier_key, PeerId::random());
-        
+
         // Verification should fail
         assert!(verifier.verify_message(&signed, &verifying_key).is_err());
     }

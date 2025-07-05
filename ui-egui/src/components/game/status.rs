@@ -13,19 +13,18 @@ impl GameStatus {
             Color::Black => "Black",
             Color::White => "White",
         };
-        
+
         ui.horizontal(|ui| {
             ui.label(format!("Current player: {}", current_player));
-            
+
             ui.separator();
-            
+
             // Show captures
             ui.label(format!(
-                "Captures - Black: {} White: {}", 
-                game_state.captures.0, 
-                game_state.captures.1
+                "Captures - Black: {} White: {}",
+                game_state.captures.0, game_state.captures.1
             ));
-            
+
             // Show move count
             ui.label(format!("Move: {}", game_state.moves.len()));
         });

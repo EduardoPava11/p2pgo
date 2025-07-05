@@ -2,9 +2,9 @@
 
 //! External terminal log streaming functionality
 
+use anyhow::Result;
 use std::process::{Command, Stdio};
 use tokio::sync::broadcast;
-use anyhow::Result;
 
 /// Log streaming manager for external terminal viewers
 pub struct LogStreamer {
@@ -17,22 +17,23 @@ impl LogStreamer {
         let (sender, _) = broadcast::channel(1000);
         Self { sender }
     }
-    
+
     /// Spawn external terminal log viewer
     pub async fn spawn_external_viewer(&self) -> Result<()> {
-        let _span = tracing::info_span!("cli.log_streamer", "LogStreamer::spawn_external_viewer").entered();
-        
+        let _span =
+            tracing::info_span!("cli.log_streamer", "LogStreamer::spawn_external_viewer").entered();
+
         // Create a log receiver for the external viewer
         let mut receiver = self.sender.subscribe();
-        
+
         // Spawn a new terminal window with a log viewer
         let viewer_command = self.get_terminal_command();
-        
+
         tracing::info!(
             command = ?viewer_command,
             "Spawning external log viewer"
         );
-        
+
         let mut child = Command::new(&viewer_command[0])
             .args(&viewer_command[1..])
             .stdin(Stdio::piped())
@@ -40,12 +41,12 @@ impl LogStreamer {
             .stderr(Stdio::null())
             .spawn()
             .map_err(|e| anyhow::anyhow!("Failed to spawn terminal: {}", e))?;
-        
+
         // Stream logs to the external viewer
         tokio::spawn(async move {
             if let Some(mut stdin) = child.stdin.take() {
                 use std::io::Write;
-                
+
                 while let Ok(log_entry) = receiver.recv().await {
                     let line = format!("{}\n", log_entry);
                     if stdin.write_all(line.as_bytes()).is_err() {
@@ -56,21 +57,21 @@ impl LogStreamer {
                     }
                 }
             }
-            
+
             // Wait for child to finish
             let _ = child.wait();
         });
-        
+
         Ok(())
     }
-    
+
     /// Send a log entry to external viewers
     pub fn log(&self, entry: &str) {
         let timestamp = chrono::Utc::now().format("%Y-%m-%d %H:%M:%S%.3f UTC");
         let formatted = format!("[{}] {}", timestamp, entry);
         let _ = self.sender.send(formatted);
     }
-    
+
     /// Get platform-specific terminal command
     fn get_terminal_command(&self) -> Vec<String> {
         #[cfg(target_os = "macos")]
@@ -81,11 +82,15 @@ impl LogStreamer {
                 "tell application \"Terminal\" to do script \"tail -f /dev/stdin | grep --line-buffered .\"".to_string(),
             ]
         }
-        
+
         #[cfg(target_os = "linux")]
         {
             // Try common terminal emulators
-            if Command::new("gnome-terminal").arg("--version").output().is_ok() {
+            if Command::new("gnome-terminal")
+                .arg("--version")
+                .output()
+                .is_ok()
+            {
                 vec![
                     "gnome-terminal".to_string(),
                     "--".to_string(),
@@ -107,7 +112,7 @@ impl LogStreamer {
                 ]
             }
         }
-        
+
         #[cfg(target_os = "windows")]
         {
             vec![
@@ -119,14 +124,17 @@ impl LogStreamer {
                 "Get-Content -Path - -Wait".to_string(),
             ]
         }
-        
+
         #[cfg(not(any(target_os = "macos", target_os = "linux", target_os = "windows")))]
         {
             // Fallback
-            vec!["echo".to_string(), "External log viewer not supported on this platform".to_string()]
+            vec![
+                "echo".to_string(),
+                "External log viewer not supported on this platform".to_string(),
+            ]
         }
     }
-    
+
     /// Create a subscriber for external log viewing
     pub fn subscribe(&self) -> broadcast::Receiver<String> {
         self.sender.subscribe()
@@ -161,23 +169,23 @@ pub fn log_external(message: &str) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     #[test]
     fn test_log_streamer_creation() {
         let streamer = LogStreamer::new();
-        
+
         // Test logging
         streamer.log("Test message");
-        
+
         // Test subscription
         let mut receiver = streamer.subscribe();
         streamer.log("Another test");
-        
+
         // We can't easily test the actual reception in a unit test
         // since it's async, but we can verify the structure works
         assert!(receiver.try_recv().is_ok());
     }
-    
+
     #[test]
     fn test_terminal_command() {
         let streamer = LogStreamer::new();

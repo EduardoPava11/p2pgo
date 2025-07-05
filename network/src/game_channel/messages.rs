@@ -2,8 +2,8 @@
 
 //! Message types for game channel communication
 
-use serde::{Serialize, Deserialize};
-use p2pgo_core::{Move, GameState};
+use p2pgo_core::{GameState, Move};
+use serde::{Deserialize, Serialize};
 
 /// Acknowledgment message for received moves
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -161,7 +161,7 @@ impl GameChannelMessage {
             GameChannelMessage::PlayerStatus(msg) => &msg.game_id,
         }
     }
-    
+
     /// Get the timestamp for any message type
     pub fn timestamp(&self) -> u64 {
         match self {
@@ -177,22 +177,22 @@ impl GameChannelMessage {
             GameChannelMessage::PlayerStatus(msg) => msg.timestamp,
         }
     }
-    
+
     /// Serialize the message to JSON
     pub fn to_json(&self) -> Result<String, serde_json::Error> {
         serde_json::to_string(self)
     }
-    
+
     /// Deserialize a message from JSON
     pub fn from_json(json: &str) -> Result<Self, serde_json::Error> {
         serde_json::from_str(json)
     }
-    
+
     /// Serialize the message to CBOR
     pub fn to_cbor(&self) -> Result<Vec<u8>, serde_cbor::Error> {
         serde_cbor::to_vec(self)
     }
-    
+
     /// Deserialize a message from CBOR
     pub fn from_cbor(cbor: &[u8]) -> Result<Self, serde_cbor::Error> {
         serde_cbor::from_slice(cbor)
@@ -209,7 +209,7 @@ impl GameChannelMessage {
             timestamp: current_timestamp(),
         })
     }
-    
+
     /// Create a sync request message
     pub fn sync_request(game_id: String) -> Self {
         GameChannelMessage::SyncRequest(SyncRequest {
@@ -217,7 +217,7 @@ impl GameChannelMessage {
             timestamp: current_timestamp(),
         })
     }
-    
+
     /// Create a sync response message
     pub fn sync_response(game_id: String, moves: Vec<Move>, state: GameState) -> Self {
         GameChannelMessage::SyncResponse(SyncResponse {
@@ -227,7 +227,7 @@ impl GameChannelMessage {
             timestamp: current_timestamp(),
         })
     }
-    
+
     /// Create a heartbeat message
     pub fn heartbeat(game_id: String, sequence: Option<u64>) -> Self {
         GameChannelMessage::Heartbeat(Heartbeat {
@@ -236,7 +236,7 @@ impl GameChannelMessage {
             sequence,
         })
     }
-    
+
     /// Create a heartbeat response message
     pub fn heartbeat_response(game_id: String, sequence: Option<u64>, rtt_ms: Option<u64>) -> Self {
         GameChannelMessage::HeartbeatResponse(HeartbeatResponse {
@@ -246,7 +246,7 @@ impl GameChannelMessage {
             rtt_ms,
         })
     }
-    
+
     /// Create a chat message
     pub fn chat(game_id: String, player_name: String, message: String) -> Self {
         GameChannelMessage::ChatMessage(ChatMessage {
@@ -269,41 +269,45 @@ fn current_timestamp() -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use p2pgo_core::{GameState, Move, Coord};
-    
+    use p2pgo_core::{Coord, GameState, Move};
+
     #[test]
     fn test_message_serialization() {
         let game_id = "test-game".to_string();
-        
+
         // Test MoveAck
         let ack = GameChannelMessage::move_ack(game_id.clone(), 5);
         let json = ack.to_json().unwrap();
         let deserialized = GameChannelMessage::from_json(&json).unwrap();
         assert_eq!(ack.game_id(), deserialized.game_id());
-        
+
         // Test SyncRequest
         let sync_req = GameChannelMessage::sync_request(game_id.clone());
         let cbor = sync_req.to_cbor().unwrap();
         let deserialized_cbor = GameChannelMessage::from_cbor(&cbor).unwrap();
         assert_eq!(sync_req.game_id(), deserialized_cbor.game_id());
-        
+
         // Test SyncResponse
         let state = GameState::new(9);
-        let moves = vec![Move::Place { x: 4, y: 4, color: p2pgo_core::Color::Black }];
+        let moves = vec![Move::Place {
+            x: 4,
+            y: 4,
+            color: p2pgo_core::Color::Black,
+        }];
         let sync_resp = GameChannelMessage::sync_response(game_id.clone(), moves, state);
         let json = sync_resp.to_json().unwrap();
         let deserialized = GameChannelMessage::from_json(&json).unwrap();
         assert_eq!(sync_resp.game_id(), deserialized.game_id());
     }
-    
+
     #[test]
     fn test_message_properties() {
         let game_id = "test-game".to_string();
         let msg = GameChannelMessage::heartbeat(game_id.clone(), Some(42));
-        
+
         assert_eq!(msg.game_id(), &game_id);
         assert!(msg.timestamp() > 0);
-        
+
         match msg {
             GameChannelMessage::Heartbeat(heartbeat) => {
                 assert_eq!(heartbeat.sequence, Some(42));

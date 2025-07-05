@@ -3,7 +3,7 @@
 #[tokio::test]
 async fn check_event_variants() {
     use iroh_gossip::net::Event;
-    
+
     // Use match to see all variants the compiler knows about
     let dummy_event: Option<Event> = None;
     if let Some(event) = dummy_event {
@@ -14,8 +14,7 @@ async fn check_event_variants() {
             }
             Event::Lagged => {
                 println!("Lagged event");
-            }
-            // This will fail if we miss a variant
+            } // This will fail if we miss a variant
         }
     }
 }

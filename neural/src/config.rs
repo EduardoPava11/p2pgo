@@ -1,37 +1,37 @@
 //! Neural network configuration based on user preferences
 
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
 
 /// Neural network configuration from questionnaire responses
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct NeuralConfig {
     /// Aggression level (1-10) - Higher means more aggressive play
     pub aggression: u8,
-    
+
     /// Territory focus (1-10) - Higher means more territorial
     pub territory_focus: u8,
-    
+
     /// Fighting spirit (1-10) - Higher means more willing to fight
     pub fighting_spirit: u8,
-    
+
     /// Pattern recognition (1-10) - Higher means more pattern-based
     pub pattern_recognition: u8,
-    
+
     /// Risk tolerance (1-10) - Higher means more risk-taking
     pub risk_tolerance: u8,
-    
+
     /// Opening style (1-10) - 1=Defensive, 10=Aggressive
     pub opening_style: u8,
-    
+
     /// Middle game focus (1-10) - Higher means stronger middle game
     pub middle_game_focus: u8,
-    
+
     /// Endgame precision (1-10) - Higher means better endgame
     pub endgame_precision: u8,
-    
+
     /// Learning rate (1-10) - Higher means faster adaptation
     pub learning_rate: u8,
-    
+
     /// Creativity (1-10) - Higher means more unconventional moves
     pub creativity: u8,
 }
@@ -58,7 +58,7 @@ impl NeuralConfig {
     pub fn balanced() -> Self {
         Self::default()
     }
-    
+
     /// Create an aggressive configuration
     pub fn aggressive() -> Self {
         Self {
@@ -74,7 +74,7 @@ impl NeuralConfig {
             creativity: 7,
         }
     }
-    
+
     /// Create a territorial configuration
     pub fn territorial() -> Self {
         Self {
@@ -90,46 +90,46 @@ impl NeuralConfig {
             creativity: 4,
         }
     }
-    
+
     /// Convert to neural network weights
     pub fn to_weights(&self) -> NeuralWeights {
         NeuralWeights {
             // Attack patterns get higher weight with more aggression
             attack_weight: self.aggression as f32 / 10.0,
-            
+
             // Defense patterns get higher weight with less aggression
             defense_weight: (10 - self.aggression) as f32 / 10.0,
-            
+
             // Territory evaluation
             territory_weight: self.territory_focus as f32 / 10.0,
-            
+
             // Influence evaluation (opposite of territory)
             influence_weight: (10 - self.territory_focus) as f32 / 10.0,
-            
+
             // Local fighting
             local_weight: self.fighting_spirit as f32 / 10.0,
-            
+
             // Global planning
             global_weight: (10 - self.fighting_spirit) as f32 / 10.0,
-            
+
             // Pattern matching strength
             pattern_weight: self.pattern_recognition as f32 / 10.0,
-            
+
             // Calculation depth (risk tolerance affects reading)
             reading_depth: 1 + (self.risk_tolerance as usize / 3),
-            
+
             // Opening preferences
             corner_preference: match self.opening_style {
-                1..=3 => 0.9,  // Defensive - strong corner preference
-                4..=7 => 0.7,  // Balanced
-                _ => 0.5,      // Aggressive - less corner focus
+                1..=3 => 0.9, // Defensive - strong corner preference
+                4..=7 => 0.7, // Balanced
+                _ => 0.5,     // Aggressive - less corner focus
             },
-            
+
             // Game phase weights
             opening_weight: if self.opening_style >= 7 { 1.2 } else { 1.0 },
             middle_weight: self.middle_game_focus as f32 / 10.0 + 0.5,
             endgame_weight: self.endgame_precision as f32 / 10.0 + 0.5,
-            
+
             // Learning parameters
             learning_rate: self.learning_rate as f32 / 100.0,
             exploration_rate: self.creativity as f32 / 20.0, // 0.05 to 0.5
@@ -215,27 +215,26 @@ impl ConfigWizard {
             answers: Vec::new(),
         }
     }
-    
+
     pub fn get_question(&self, index: usize) -> Option<(&str, &str)> {
-        self.questions.get(index)
-            .map(|q| (q.text, q.description))
+        self.questions.get(index).map(|q| (q.text, q.description))
     }
-    
+
     pub fn answer(&mut self, value: u8) {
         if value >= 1 && value <= 10 {
             self.answers.push(value);
         }
     }
-    
+
     pub fn is_complete(&self) -> bool {
         self.answers.len() == self.questions.len()
     }
-    
+
     pub fn build_config(&self) -> Option<NeuralConfig> {
         if !self.is_complete() {
             return None;
         }
-        
+
         Some(NeuralConfig {
             aggression: self.answers[0],
             territory_focus: self.answers[1],

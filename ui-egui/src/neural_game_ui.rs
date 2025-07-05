@@ -23,59 +23,59 @@ impl NeuralGameUI {
             last_evaluation: None,
         }
     }
-    
+
     /// Render neural network controls
     pub fn render_controls(&mut self, ui: &mut egui::Ui) {
         ui.horizontal(|ui| {
             ui.label("🧠 Neural Assistant:");
-            
+
             // Heat map toggle
             let heat_text = if self.heat_map.is_enabled() {
                 RichText::new("Heat Map ON").color(Color32::from_rgb(255, 100, 100))
             } else {
                 RichText::new("Heat Map OFF").color(Color32::GRAY)
             };
-            
+
             if ui.button(heat_text).clicked() {
                 self.heat_map.toggle();
             }
-            
+
             ui.label("(Press H)");
-            
+
             ui.separator();
-            
+
             // Evaluation toggle
             ui.toggle_value(&mut self.show_evaluation, "Show Evaluation");
         });
     }
-    
+
     /// Render position evaluation
     pub fn render_evaluation(&self, ui: &mut egui::Ui, game_state: &GameState) {
         if !self.show_evaluation {
             return;
         }
-        
+
         ui.group(|ui| {
             ui.label(RichText::new("📊 Position Evaluation").strong());
-            
+
             if let Some(eval) = &self.last_evaluation {
                 // Win probability bar
                 ui.horizontal(|ui| {
                     ui.label("Win %:");
-                    
+
                     let win_pct = (eval.win_probability + 1.0) / 2.0 * 100.0;
                     let bar_width = 200.0;
                     let bar_height = 20.0;
-                    
+
                     let (rect, _) = ui.allocate_space(egui::Vec2::new(bar_width, bar_height));
-                    
+
                     // Background
                     ui.painter().rect_filled(
                         rect,
                         2.0,
                         Color32::from_gray(50),
                     );
-                    
+
                     // Fill based on win probability
                     let fill_width = bar_width * (win_pct / 100.0);
                     let fill_color = if win_pct > 50.0 {
@@ -83,18 +83,18 @@ impl NeuralGameUI {
                     } else {
                         Color32::from_rgb(200, 0, 0)
                     };
-                    
+
                     let fill_rect = egui::Rect::from_min_size(
                         rect.min,
                         egui::Vec2::new(fill_width, bar_height),
                     );
-                    
+
                     ui.painter().rect_filled(
                         fill_rect,
                         2.0,
                         fill_color,
                     );
-                    
+
                     // Text overlay
                     ui.painter().text(
                         rect.center(),
@@ -104,7 +104,7 @@ impl NeuralGameUI {
                         Color32::WHITE,
                     );
                 });
-                
+
                 // Confidence
                 ui.horizontal(|ui| {
                     ui.label("Confidence:");
@@ -116,7 +116,7 @@ impl NeuralGameUI {
                     };
                     ui.label(format!("{} ({:.0}%)", confidence_text, eval.confidence * 100.0));
                 });
-                
+
                 // Game phase
                 let move_count = game_state.moves.len();
                 let phase = match move_count {
@@ -131,14 +131,14 @@ impl NeuralGameUI {
             }
         });
     }
-    
+
     /// Handle keyboard shortcuts
     pub fn handle_input(&mut self, ctx: &egui::Context) {
         if ctx.input(|i| i.key_pressed(egui::Key::H)) {
             self.heat_map.toggle();
         }
     }
-    
+
     /// Update evaluation
     pub fn update_evaluation(&mut self, game_state: &GameState) {
         // This would normally call the neural network
@@ -161,18 +161,18 @@ impl TrainingProgressUI {
         if !self.is_training {
             return;
         }
-        
+
         ui.group(|ui| {
             ui.label(RichText::new("🎓 Training Progress").strong());
-            
+
             // Progress bar
             let progress = self.games_processed as f32 / self.total_games.max(1) as f32;
             ui.add(egui::ProgressBar::new(progress)
                 .text(format!("{}/{} games", self.games_processed, self.total_games)));
-            
+
             // Accuracy
             ui.label(format!("Current accuracy: {:.1}%", self.current_accuracy * 100.0));
-            
+
             // Time estimate
             if self.games_processed > 0 {
                 let remaining = self.total_games - self.games_processed;

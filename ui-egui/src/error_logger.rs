@@ -1,9 +1,9 @@
+use chrono::{DateTime, Local};
+use serde::{Deserialize, Serialize};
 use std::collections::VecDeque;
 use std::fs::OpenOptions;
 use std::io::Write;
 use std::path::PathBuf;
-use chrono::{DateTime, Local};
-use serde::{Serialize, Deserialize};
 
 /// Error severity levels
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -46,13 +46,15 @@ impl ErrorLogger {
             .unwrap_or_else(|| PathBuf::from("."))
             .join("p2pgo")
             .join("logs");
-        
+
         // Create log directory if needed
         let _ = std::fs::create_dir_all(&log_dir);
-        
-        let log_file = log_dir.join(format!("p2pgo_{}.log", 
-            Local::now().format("%Y%m%d_%H%M%S")));
-        
+
+        let log_file = log_dir.join(format!(
+            "p2pgo_{}.log",
+            Local::now().format("%Y%m%d_%H%M%S")
+        ));
+
         Self {
             entries: VecDeque::with_capacity(1000),
             max_entries: 1000,
@@ -61,12 +63,12 @@ impl ErrorLogger {
             min_level: ErrorLevel::Info,
         }
     }
-    
+
     /// Log an entry
     pub fn log(&mut self, level: ErrorLevel, component: &str, message: &str) {
         self.log_with_context(level, component, message, None, None);
     }
-    
+
     /// Log with additional context
     pub fn log_with_context(
         &mut self,
@@ -79,7 +81,7 @@ impl ErrorLogger {
         if (level as u8) < (self.min_level as u8) {
             return;
         }
-        
+
         let entry = LogEntry {
             timestamp: Local::now(),
             level,
@@ -88,22 +90,23 @@ impl ErrorLogger {
             context: context.clone(),
             stack_trace,
         };
-        
+
         // Add to memory buffer
         if self.entries.len() >= self.max_entries {
             self.entries.pop_front();
         }
         self.entries.push_back(entry.clone());
-        
+
         // Write to file
         if self.file_logging_enabled {
             self.write_to_file(&entry);
         }
-        
+
         // Also print to console in debug mode
         #[cfg(debug_assertions)]
         {
-            eprintln!("[{}] {} [{}]: {}", 
+            eprintln!(
+                "[{}] {} [{}]: {}",
                 entry.timestamp.format("%H:%M:%S"),
                 self.level_icon(level),
                 component,
@@ -114,7 +117,7 @@ impl ErrorLogger {
             }
         }
     }
-    
+
     /// Log an error with automatic stack trace capture
     pub fn log_error(&mut self, component: &str, error: &anyhow::Error) {
         let stack_trace = format!("{:?}", error);
@@ -126,29 +129,27 @@ impl ErrorLogger {
             Some(stack_trace),
         );
     }
-    
+
     /// Get recent entries
     pub fn get_entries(&self, max_count: usize) -> Vec<&LogEntry> {
-        self.entries.iter()
-            .rev()
-            .take(max_count)
-            .collect()
+        self.entries.iter().rev().take(max_count).collect()
     }
-    
+
     /// Get entries filtered by level
     pub fn get_entries_by_level(&self, level: ErrorLevel, max_count: usize) -> Vec<&LogEntry> {
-        self.entries.iter()
+        self.entries
+            .iter()
             .rev()
             .filter(|e| e.level == level)
             .take(max_count)
             .collect()
     }
-    
+
     /// Clear all entries
     pub fn clear(&mut self) {
         self.entries.clear();
     }
-    
+
     /// Export logs to file
     pub fn export_logs(&self, path: &PathBuf) -> anyhow::Result<()> {
         let mut file = OpenOptions::new()
@@ -156,24 +157,24 @@ impl ErrorLogger {
             .write(true)
             .truncate(true)
             .open(path)?;
-        
+
         for entry in &self.entries {
             writeln!(file, "{}", self.format_entry(entry))?;
         }
-        
+
         Ok(())
     }
-    
+
     /// Set minimum logging level
     pub fn set_min_level(&mut self, level: ErrorLevel) {
         self.min_level = level;
     }
-    
+
     /// Toggle file logging
     pub fn set_file_logging(&mut self, enabled: bool) {
         self.file_logging_enabled = enabled;
     }
-    
+
     fn write_to_file(&self, entry: &LogEntry) {
         if let Ok(mut file) = OpenOptions::new()
             .create(true)
@@ -183,7 +184,7 @@ impl ErrorLogger {
             let _ = writeln!(file, "{}", self.format_entry(entry));
         }
     }
-    
+
     fn format_entry(&self, entry: &LogEntry) -> String {
         let mut output = format!(
             "[{}] {} [{}] {}",
@@ -192,23 +193,25 @@ impl ErrorLogger {
             entry.component,
             entry.message
         );
-        
+
         if let Some(ctx) = &entry.context {
             output.push_str(&format!("\n    Context: {}", ctx));
         }
-        
+
         if let Some(trace) = &entry.stack_trace {
-            output.push_str(&format!("\n    Stack trace:\n{}", 
-                trace.lines()
+            output.push_str(&format!(
+                "\n    Stack trace:\n{}",
+                trace
+                    .lines()
                     .map(|line| format!("      {}", line))
                     .collect::<Vec<_>>()
                     .join("\n")
             ));
         }
-        
+
         output
     }
-    
+
     fn level_string(&self, level: ErrorLevel) -> &'static str {
         match level {
             ErrorLevel::Debug => "DEBUG",
@@ -218,7 +221,7 @@ impl ErrorLogger {
             ErrorLevel::Critical => "CRITICAL",
         }
     }
-    
+
     fn level_icon(&self, level: ErrorLevel) -> &'static str {
         match level {
             ErrorLevel::Debug => "🔍",
@@ -248,18 +251,19 @@ impl ErrorLogViewer {
             show_stack_traces: false,
         }
     }
-    
+
     pub fn render(&mut self, ui: &mut egui::Ui, logger: &ErrorLogger) {
         ui.heading("📋 Error Log");
-        
+
         // Controls
         ui.horizontal(|ui| {
             ui.label("Filter:");
-            
-            let filter_text = self.filter_level
+
+            let filter_text = self
+                .filter_level
                 .map(|l| logger.level_string(l))
                 .unwrap_or("All");
-            
+
             egui::ComboBox::from_label("")
                 .selected_text(filter_text)
                 .show_ui(ui, |ui| {
@@ -267,24 +271,32 @@ impl ErrorLogViewer {
                     ui.separator();
                     ui.selectable_value(&mut self.filter_level, Some(ErrorLevel::Debug), "Debug");
                     ui.selectable_value(&mut self.filter_level, Some(ErrorLevel::Info), "Info");
-                    ui.selectable_value(&mut self.filter_level, Some(ErrorLevel::Warning), "Warning");
+                    ui.selectable_value(
+                        &mut self.filter_level,
+                        Some(ErrorLevel::Warning),
+                        "Warning",
+                    );
                     ui.selectable_value(&mut self.filter_level, Some(ErrorLevel::Error), "Error");
-                    ui.selectable_value(&mut self.filter_level, Some(ErrorLevel::Critical), "Critical");
+                    ui.selectable_value(
+                        &mut self.filter_level,
+                        Some(ErrorLevel::Critical),
+                        "Critical",
+                    );
                 });
-            
+
             ui.separator();
-            
+
             ui.label("Search:");
             ui.text_edit_singleline(&mut self.search_query);
-            
+
             ui.separator();
-            
+
             ui.checkbox(&mut self.show_stack_traces, "Show traces");
-            
+
             if ui.button("Clear").clicked() {
                 // Note: In real implementation, this would need mutable access to logger
             }
-            
+
             if ui.button("Export...").clicked() {
                 if let Some(path) = rfd::FileDialog::new()
                     .set_file_name("p2pgo_logs.txt")
@@ -294,28 +306,33 @@ impl ErrorLogViewer {
                 }
             }
         });
-        
+
         ui.separator();
-        
+
         // Get filtered entries
         let entries: Vec<&LogEntry> = if let Some(level) = self.filter_level {
             logger.get_entries_by_level(level, 100)
         } else {
             logger.get_entries(100)
         };
-        
+
         // Apply search filter
         let filtered_entries: Vec<&LogEntry> = if self.search_query.is_empty() {
             entries
         } else {
-            entries.into_iter()
+            entries
+                .into_iter()
                 .filter(|e| {
-                    e.message.to_lowercase().contains(&self.search_query.to_lowercase()) ||
-                    e.component.to_lowercase().contains(&self.search_query.to_lowercase())
+                    e.message
+                        .to_lowercase()
+                        .contains(&self.search_query.to_lowercase())
+                        || e.component
+                            .to_lowercase()
+                            .contains(&self.search_query.to_lowercase())
                 })
                 .collect()
         };
-        
+
         // Display entries
         egui::ScrollArea::vertical()
             .max_height(400.0)
@@ -325,7 +342,7 @@ impl ErrorLogViewer {
                 }
             });
     }
-    
+
     fn render_entry(&self, ui: &mut egui::Ui, entry: &LogEntry, logger: &ErrorLogger) {
         let color = match entry.level {
             ErrorLevel::Debug => egui::Color32::from_rgb(128, 128, 128),
@@ -334,27 +351,27 @@ impl ErrorLogViewer {
             ErrorLevel::Error => egui::Color32::from_rgb(255, 100, 100),
             ErrorLevel::Critical => egui::Color32::from_rgb(255, 0, 0),
         };
-        
+
         ui.horizontal(|ui| {
             // Timestamp
             ui.colored_label(
                 egui::Color32::from_gray(150),
-                entry.timestamp.format("%H:%M:%S").to_string()
+                entry.timestamp.format("%H:%M:%S").to_string(),
             );
-            
+
             // Level icon
             ui.colored_label(color, logger.level_icon(entry.level));
-            
+
             // Component
             ui.colored_label(
                 egui::Color32::from_gray(200),
-                format!("[{}]", entry.component)
+                format!("[{}]", entry.component),
             );
-            
+
             // Message
             ui.colored_label(color, &entry.message);
         });
-        
+
         // Context and stack trace
         if let Some(ctx) = &entry.context {
             ui.add_space(2.0);
@@ -363,7 +380,7 @@ impl ErrorLogViewer {
                 ui.colored_label(egui::Color32::from_gray(180), format!("Context: {}", ctx));
             });
         }
-        
+
         if self.show_stack_traces {
             if let Some(trace) = &entry.stack_trace {
                 ui.add_space(2.0);
@@ -375,7 +392,7 @@ impl ErrorLogViewer {
                 });
             }
         }
-        
+
         ui.add_space(4.0);
     }
 }
@@ -384,9 +401,7 @@ impl ErrorLogViewer {
 use once_cell::sync::Lazy;
 use std::sync::Mutex;
 
-static ERROR_LOGGER: Lazy<Mutex<ErrorLogger>> = Lazy::new(|| {
-    Mutex::new(ErrorLogger::new())
-});
+static ERROR_LOGGER: Lazy<Mutex<ErrorLogger>> = Lazy::new(|| Mutex::new(ErrorLogger::new()));
 
 /// Get global error logger
 pub fn with_error_logger<F, R>(f: F) -> R

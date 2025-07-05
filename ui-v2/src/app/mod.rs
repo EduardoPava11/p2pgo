@@ -1,7 +1,7 @@
 //! Application shell and routing
 
-pub mod router;
 pub mod app;
+pub mod router;
 
-pub use router::{Router, View};
 pub use app::P2PGoApp;
+pub use router::{Router, View};

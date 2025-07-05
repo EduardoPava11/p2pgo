@@ -24,7 +24,7 @@ pub struct ModelListing {
 pub struct ModelMetadata {
     pub name: String,
     pub description: String,
-    pub board_size: u8, // 9, 13, 19
+    pub board_size: u8,       // 9, 13, 19
     pub architecture: String, // "6-block-resnet", etc
     pub parameters: u32,
     pub training_games: u32,
@@ -106,20 +106,21 @@ impl NeuralMarketplace {
             purchases: Vec::new(),
         }
     }
-    
+
     /// List a new model for sale
     pub fn list_model(&mut self, listing: ModelListing) -> Result<(), String> {
         if self.listings.contains_key(&listing.cid) {
             return Err("Model already listed".to_string());
         }
-        
+
         self.listings.insert(listing.cid.clone(), listing);
         Ok(())
     }
-    
+
     /// Search for models by criteria
     pub fn search_models(&self, criteria: SearchCriteria) -> Vec<&ModelListing> {
-        self.listings.values()
+        self.listings
+            .values()
             .filter(|listing| {
                 // Board size filter
                 if let Some(size) = criteria.board_size {
@@ -127,117 +128,122 @@ impl NeuralMarketplace {
                         return false;
                     }
                 }
-                
+
                 // ELO rating filter
                 if let Some(min_elo) = criteria.min_elo {
                     if listing.metrics.elo_rating < min_elo {
                         return false;
                     }
                 }
-                
+
                 // Price filter
                 if let Some(max_price) = criteria.max_price {
                     if listing.price > max_price {
                         return false;
                     }
                 }
-                
+
                 // Parameter count filter
                 if let Some(max_params) = criteria.max_parameters {
                     if listing.metadata.parameters > max_params {
                         return false;
                     }
                 }
-                
+
                 true
             })
             .collect()
     }
-    
+
     /// Create a training bounty
     pub fn create_bounty(&mut self, bounty: TrainingBounty) -> Result<(), String> {
         if self.bounties.contains_key(&bounty.bounty_id) {
             return Err("Bounty ID already exists".to_string());
         }
-        
+
         self.bounties.insert(bounty.bounty_id.clone(), bounty);
         Ok(())
     }
-    
+
     /// Submit model to bounty
     pub fn submit_to_bounty(
         &mut self,
         bounty_id: &str,
         submission: BountySubmission,
     ) -> Result<(), String> {
-        let bounty = self.bounties.get_mut(bounty_id)
-            .ok_or("Bounty not found")?;
-        
+        let bounty = self.bounties.get_mut(bounty_id).ok_or("Bounty not found")?;
+
         // Verify requirements
         let reqs = &bounty.requirements;
-        
+
         if submission.metrics.elo_rating < reqs.min_elo_improvement {
             return Err("ELO improvement requirement not met".to_string());
         }
-        
+
         if submission.metrics.model_size_kb > reqs.max_parameters / 1000 {
             return Err("Model too large".to_string());
         }
-        
+
         bounty.submissions.push(submission);
         Ok(())
     }
-    
+
     /// Process model purchase
     pub fn purchase_model(&mut self, request: PurchaseRequest) -> Result<(), String> {
         if !self.listings.contains_key(&request.model_cid) {
             return Err("Model not found".to_string());
         }
-        
+
         // In real implementation, would verify payment
         match &request.payment_method {
             PaymentMethod::Lightning { invoice, .. } => {
                 // Verify Lightning payment
                 println!("Processing Lightning payment: {}", invoice);
             }
-            PaymentMethod::Polkadot { transaction_hash, .. } => {
+            PaymentMethod::Polkadot {
+                transaction_hash, ..
+            } => {
                 // Verify Polkadot transaction
                 println!("Processing Polkadot payment: {}", transaction_hash);
             }
         }
-        
+
         self.purchases.push(request);
         Ok(())
     }
-    
+
     /// Get marketplace statistics
     pub fn get_stats(&self) -> MarketplaceStats {
-        let total_volume: u64 = self.purchases.iter()
+        let total_volume: u64 = self
+            .purchases
+            .iter()
             .filter_map(|p| self.listings.get(&p.model_cid))
             .map(|l| l.price)
             .sum();
-        
+
         let avg_price = if !self.listings.is_empty() {
             self.listings.values().map(|l| l.price).sum::<u64>() / self.listings.len() as u64
         } else {
             0
         };
-        
+
         let avg_elo = if !self.listings.is_empty() {
-            self.listings.values().map(|l| l.metrics.elo_rating).sum::<i32>() / self.listings.len() as i32
+            self.listings
+                .values()
+                .map(|l| l.metrics.elo_rating)
+                .sum::<i32>()
+                / self.listings.len() as i32
         } else {
             0
         };
-        
+
         MarketplaceStats {
             total_listings: self.listings.len(),
             total_bounties: self.bounties.len(),
             total_volume,
             average_price: avg_price,
             average_elo: avg_elo,
-            active_bounty_rewards: self.bounties.values()
-                .map(|b| b.reward)
-                .sum(),
+            active_bounty_rewards: self.bounties.values().map(|b| b.reward).sum(),
         }
     }
 }
@@ -262,13 +268,13 @@ pub struct MarketplaceStats {
 
 /// Lightning Network integration for micropayments
 pub mod lightning {
-    
+
     /// Generate Lightning invoice for model purchase
     pub fn create_invoice(amount_sats: u64, model_cid: &str) -> String {
         // Placeholder - would use actual Lightning implementation
         format!("lnbc{}n1p...{}", amount_sats, &model_cid[..8])
     }
-    
+
     /// Verify payment preimage
     pub fn verify_payment(invoice: &str, preimage: &str) -> bool {
         // Placeholder - would verify actual payment
@@ -278,13 +284,13 @@ pub mod lightning {
 
 /// Polkadot integration for larger transactions
 pub mod polkadot {
-    
+
     /// Create Substrate pallet call for model purchase
     pub fn create_purchase_call(model_cid: &str, price_dot: u64) -> String {
         // Placeholder - would create actual extrinsic
         format!("0x00...{:x}...{}", price_dot, model_cid)
     }
-    
+
     /// Verify transaction on parachain
     pub fn verify_transaction(tx_hash: &str, parachain_id: u32) -> bool {
         // Placeholder - would query actual parachain
@@ -295,11 +301,11 @@ pub mod polkadot {
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     #[test]
     fn test_marketplace_listing() {
         let mut marketplace = NeuralMarketplace::new();
-        
+
         let listing = ModelListing {
             cid: "QmTest123".to_string(),
             metadata: ModelMetadata {
@@ -323,9 +329,9 @@ mod tests {
             },
             listed_at: 1234567890,
         };
-        
+
         marketplace.list_model(listing.clone()).unwrap();
-        
+
         // Search for 9x9 models
         let results = marketplace.search_models(SearchCriteria {
             board_size: Some(9),
@@ -333,15 +339,15 @@ mod tests {
             max_price: Some(20_000),
             max_parameters: None,
         });
-        
+
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].cid, "QmTest123");
     }
-    
+
     #[test]
     fn test_training_bounty() {
         let mut marketplace = NeuralMarketplace::new();
-        
+
         let bounty = TrainingBounty {
             bounty_id: "bounty_001".to_string(),
             base_model_cid: "QmBase123".to_string(),
@@ -356,9 +362,9 @@ mod tests {
             deadline: 1234567890,
             submissions: vec![],
         };
-        
+
         marketplace.create_bounty(bounty).unwrap();
-        
+
         // Submit improved model
         let submission = BountySubmission {
             model_cid: "QmImproved123".to_string(),
@@ -373,9 +379,11 @@ mod tests {
             training_log: "Used KD with temperature 3.0".to_string(),
             submitted_at: 1234567000,
         };
-        
-        marketplace.submit_to_bounty("bounty_001", submission).unwrap();
-        
+
+        marketplace
+            .submit_to_bounty("bounty_001", submission)
+            .unwrap();
+
         let stats = marketplace.get_stats();
         assert_eq!(stats.total_bounties, 1);
         assert_eq!(stats.active_bounty_rewards, 100_000);

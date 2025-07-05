@@ -57,13 +57,13 @@ impl RelayConfig {
     pub fn minimal() -> Self {
         Self {
             mode: RelayMode::Minimal,
-            max_bandwidth: Some(500_000), // 500 KB/s
-            max_connections: 2, // Only active games
+            max_bandwidth: Some(500_000),             // 500 KB/s
+            max_connections: 2,                       // Only active games
             relay_timeout: Duration::from_secs(1800), // 30 minutes
             enable_metrics: false,
         }
     }
-    
+
     /// Create a normal configuration for regular play
     pub fn normal() -> Self {
         Self {
@@ -77,7 +77,7 @@ impl RelayConfig {
             enable_metrics: true,
         }
     }
-    
+
     /// Create a provider configuration for earning credits
     pub fn provider() -> Self {
         Self {
@@ -92,26 +92,33 @@ impl RelayConfig {
             enable_metrics: true,
         }
     }
-    
+
     /// Check if relay service is enabled
     pub fn is_relay_enabled(&self) -> bool {
         !matches!(self.mode, RelayMode::Disabled)
     }
-    
+
     /// Check if we provide relay service
     pub fn is_relay_provider(&self) -> bool {
-        matches!(self.mode, RelayMode::Normal { .. } | RelayMode::Provider { .. })
+        matches!(
+            self.mode,
+            RelayMode::Normal { .. } | RelayMode::Provider { .. }
+        )
     }
-    
+
     /// Get maximum reservations
     pub fn max_reservations(&self) -> usize {
         match &self.mode {
             RelayMode::Disabled | RelayMode::Minimal => 0,
-            RelayMode::Normal { max_reservations, .. } => *max_reservations,
-            RelayMode::Provider { max_reservations, .. } => *max_reservations,
+            RelayMode::Normal {
+                max_reservations, ..
+            } => *max_reservations,
+            RelayMode::Provider {
+                max_reservations, ..
+            } => *max_reservations,
         }
     }
-    
+
     /// Get maximum circuits
     pub fn max_circuits(&self) -> usize {
         match &self.mode {
@@ -153,28 +160,28 @@ impl RelayStats {
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     #[test]
     fn test_relay_modes() {
         let minimal = RelayConfig::minimal();
         assert_eq!(minimal.mode, RelayMode::Minimal);
         assert!(!minimal.is_relay_provider());
-        
+
         let normal = RelayConfig::normal();
         assert!(normal.is_relay_provider());
         assert_eq!(normal.max_reservations(), 20);
-        
+
         let provider = RelayConfig::provider();
         assert!(provider.is_relay_provider());
         assert_eq!(provider.max_circuits(), 50);
     }
-    
+
     #[test]
     fn test_credit_calculation() {
         let mut stats = RelayStats::default();
         stats.games_relayed = 5;
         stats.bytes_relayed = 50_000_000; // 50 MB
-        
+
         assert_eq!(stats.calculate_credits(), 10); // 5 games + 5 (50MB/10MB)
     }
 }

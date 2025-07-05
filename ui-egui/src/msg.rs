@@ -2,7 +2,7 @@
 
 //! Message types for UI-Network communication.
 
-use p2pgo_core::{Move, GameEvent, Coord, Tag};
+use p2pgo_core::{Coord, GameEvent, Move, Tag};
 use p2pgo_network::lobby::GameInfo;
 
 /// Messages sent from UI to Network worker
@@ -38,35 +38,29 @@ pub enum UiToNet {
     /// Request AI ghost moves for current board state
     GetGhostMoves,
     /// Calculate score at end of game
-    CalculateScore { 
-        dead_stones: std::collections::HashSet<p2pgo_core::Coord> 
+    CalculateScore {
+        dead_stones: std::collections::HashSet<p2pgo_core::Coord>,
     },
     /// Accept score at end of game
-    AcceptScore { 
-        score_proof: p2pgo_core::value_labeller::ScoreProof 
+    AcceptScore {
+        score_proof: p2pgo_core::value_labeller::ScoreProof,
     },
     /// Save new network configuration and restart networking
-    SaveConfigAndRestart { 
-        config_json: String 
-    },
+    SaveConfigAndRestart { config_json: String },
     /// Force restart the network layer
     RestartNetwork,
     /// Run network connection test
     RunConnectionTest,
     /// Start neural network training with SGF files
-    StartTraining { 
-        sgf_paths: Vec<std::path::PathBuf> 
-    },
+    StartTraining { sgf_paths: Vec<std::path::PathBuf> },
     /// Cancel ongoing training
     CancelTraining,
     /// Set relay mode
-    SetRelayMode { 
-        mode: p2pgo_network::relay_config::RelayMode 
+    SetRelayMode {
+        mode: p2pgo_network::relay_config::RelayMode,
     },
     /// Set training data consent
-    SetTrainingConsent { 
-        consent: bool 
-    },
+    SetTrainingConsent { consent: bool },
     /// Request relay statistics
     RequestRelayStats,
 }
@@ -111,9 +105,7 @@ pub enum NetToUi {
         score_proof: p2pgo_core::value_labeller::ScoreProof,
     },
     /// Score timeout (3 minutes)
-    ScoreTimeout {
-        board_size: u8,
-    },
+    ScoreTimeout { board_size: u8 },
     /// Game advertisement received via gossip
     GameAdvertised {
         game_id: String,
@@ -121,9 +113,7 @@ pub enum NetToUi {
         board_size: u8,
     },
     /// Network layer is restarting (relay restart, config change, etc.)
-    NetRestarting {
-        reason: String,
-    },
+    NetRestarting { reason: String },
     /// Network layer restart completed
     NetRestartCompleted,
     /// Relay health status update
@@ -161,33 +151,25 @@ pub enum NetToUi {
         results: Vec<String>,
     },
     /// Training progress update
-    TrainingProgress { 
-        progress: f32 
-    },
+    TrainingProgress { progress: f32 },
     /// Training completed successfully
-    TrainingCompleted { 
-        stats: p2pgo_neural::training::TrainingStats 
+    TrainingCompleted {
+        stats: p2pgo_neural::training::TrainingStats,
     },
     /// Training error occurred
-    TrainingError { 
-        message: String 
-    },
+    TrainingError { message: String },
     /// Relay mode changed
-    RelayModeChanged { 
-        mode: p2pgo_network::relay_config::RelayMode 
+    RelayModeChanged {
+        mode: p2pgo_network::relay_config::RelayMode,
     },
     /// Training consent status
-    TrainingConsentStatus { 
-        enabled: bool 
-    },
+    TrainingConsentStatus { enabled: bool },
     /// Relay statistics update
-    RelayStatsUpdate { 
-        stats: p2pgo_network::relay_config::RelayStats 
+    RelayStatsUpdate {
+        stats: p2pgo_network::relay_config::RelayStats,
     },
     /// Training credits earned for relay service
-    TrainingCreditsEarned { 
-        credits: u64 
-    },
+    TrainingCreditsEarned { credits: u64 },
 }
 
 /// Extension trait for NetToUi messages

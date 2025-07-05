@@ -1,7 +1,7 @@
 //! Styled button component
 
-use egui::{Color32, Response, RichText, Ui, Vec2, Widget};
 use super::theme::{Colors, Spacing, Styles, Typography};
+use egui::{Color32, Response, RichText, Ui, Vec2, Widget};
 
 #[derive(Clone, Copy, PartialEq)]
 pub enum ButtonStyle {
@@ -36,27 +36,27 @@ impl StyledButton {
             min_width: None,
         }
     }
-    
+
     pub fn style(mut self, style: ButtonStyle) -> Self {
         self.style = style;
         self
     }
-    
+
     pub fn size(mut self, size: ButtonSize) -> Self {
         self.size = size;
         self
     }
-    
+
     pub fn enabled(mut self, enabled: bool) -> Self {
         self.enabled = enabled;
         self
     }
-    
+
     pub fn min_width(mut self, width: f32) -> Self {
         self.min_width = Some(width);
         self
     }
-    
+
     fn get_colors(&self) -> (Color32, Color32, Color32) {
         match self.style {
             ButtonStyle::Primary => (
@@ -97,17 +97,11 @@ impl StyledButton {
             ),
         }
     }
-    
+
     fn get_size_params(&self) -> (f32, Vec2) {
         match self.size {
-            ButtonSize::Small => (
-                Typography::FONT_SMALL,
-                Vec2::new(Spacing::SM, Spacing::XS),
-            ),
-            ButtonSize::Medium => (
-                Typography::FONT_BODY,
-                Vec2::new(Spacing::MD, Spacing::SM),
-            ),
+            ButtonSize::Small => (Typography::FONT_SMALL, Vec2::new(Spacing::SM, Spacing::XS)),
+            ButtonSize::Medium => (Typography::FONT_BODY, Vec2::new(Spacing::MD, Spacing::SM)),
             ButtonSize::Large => (
                 Typography::FONT_HEADING,
                 Vec2::new(Spacing::LG, Spacing::MD),
@@ -120,15 +114,24 @@ impl Widget for StyledButton {
     fn ui(self, ui: &mut Ui) -> Response {
         let (base_color, hover_color, text_color) = self.get_colors();
         let (font_size, padding) = self.get_size_params();
-        
+
         let text = RichText::new(&self.text)
             .size(font_size)
-            .color(if self.enabled { text_color } else { text_color.linear_multiply(0.5) });
-        
-        let mut button = egui::Button::new(text)
-            .rounding(Styles::rounding())
-            .fill(if self.enabled { base_color } else { base_color.linear_multiply(0.5) });
-        
+            .color(if self.enabled {
+                text_color
+            } else {
+                text_color.linear_multiply(0.5)
+            });
+
+        let mut button =
+            egui::Button::new(text)
+                .rounding(Styles::rounding())
+                .fill(if self.enabled {
+                    base_color
+                } else {
+                    base_color.linear_multiply(0.5)
+                });
+
         if let Some(width) = self.min_width {
             let height = match self.size {
                 ButtonSize::Small => 32.0,
@@ -137,9 +140,9 @@ impl Widget for StyledButton {
             };
             button = button.min_size(Vec2::new(width, height));
         }
-        
+
         let response = ui.add_enabled(self.enabled, button);
-        
+
         // Add hover effect
         if response.hovered() && self.enabled {
             ui.painter().rect_filled(
@@ -148,7 +151,7 @@ impl Widget for StyledButton {
                 hover_color.linear_multiply(0.1),
             );
         }
-        
+
         response
     }
 }

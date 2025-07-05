@@ -131,14 +131,14 @@ impl NeuralTrainingUI {
             messages: Vec::new(),
         }
     }
-    
+
     pub fn render(&mut self, ui: &mut egui::Ui) -> Option<TrainingData> {
         let mut training_data = None;
-        
+
         // Header
         ui.heading("🧠 Neural Network Training Center");
         ui.separator();
-        
+
         // Tab selector
         ui.horizontal(|ui| {
             ui.selectable_value(&mut self.current_tab, TrainingTab::Upload, "📤 Upload SGF");
@@ -146,9 +146,9 @@ impl NeuralTrainingUI {
             ui.selectable_value(&mut self.current_tab, TrainingTab::Training, "🔧 Training");
             ui.selectable_value(&mut self.current_tab, TrainingTab::Analysis, "📊 Ko Analysis");
         });
-        
+
         ui.separator();
-        
+
         // Render current tab
         match self.current_tab {
             TrainingTab::Upload => {
@@ -166,73 +166,73 @@ impl NeuralTrainingUI {
                 self.render_analysis_tab(ui);
             }
         }
-        
+
         // Show messages
         self.render_messages(ui);
-        
+
         training_data
     }
-    
+
     fn render_upload_tab(&mut self, ui: &mut egui::Ui) -> Option<Vec<GameState>> {
         self.sgf_upload.render(ui)
     }
-    
+
     fn render_games_tab(&mut self, ui: &mut egui::Ui) {
         self.game_manager.render(ui)
     }
-    
+
     fn render_training_tab(&mut self, ui: &mut egui::Ui) -> Option<TrainingData> {
         self.training_manager.render(ui, &self.game_manager)
     }
-    
+
     fn render_analysis_tab(&mut self, ui: &mut egui::Ui) {
         ui.heading("Ko Situation Analysis");
-        
+
         if ui.button("🔍 Analyze All Games").clicked() {
             self.analyze_ko_situations();
         }
-        
+
         ui.separator();
-        
+
         // Show analysis results
         if self.ko_analysis.total_games_analyzed > 0 {
             egui::Grid::new("ko_stats").show(ui, |ui| {
                 ui.label("Total games analyzed:");
                 ui.label(format!("{}", self.ko_analysis.total_games_analyzed));
                 ui.end_row();
-                
+
                 ui.label("Games with Ko:");
-                ui.label(format!("{} ({:.1}%)", 
+                ui.label(format!("{} ({:.1}%)",
                     self.ko_analysis.games_with_ko,
                     (self.ko_analysis.games_with_ko as f32 / self.ko_analysis.total_games_analyzed as f32) * 100.0
                 ));
                 ui.end_row();
-                
+
                 ui.label("Total Ko situations:");
                 ui.label(format!("{}", self.ko_analysis.total_ko_situations));
                 ui.end_row();
             });
-            
+
             ui.separator();
             ui.heading("Ko Situations by Game");
-            
+
             if self.ko_analysis.games_with_ko == 0 {
-                ui.colored_label(egui::Color32::YELLOW, 
+                ui.colored_label(egui::Color32::YELLOW,
                     "⚠️ No Ko situations found in uploaded games");
-                
+
                 ui.separator();
                 if ui.button("🎲 Generate Ko Training Patterns").clicked() {
                     self.generate_ko_patterns();
                 }
-                
+
                 ui.label("This will create synthetic Ko situations for training when real game data lacks Ko examples.");
             } else {
                 egui::ScrollArea::vertical().max_height(300.0).show(ui, |ui| {
                     for (game_id, situations) in &self.ko_analysis.ko_situations {
-                        ui.collapsing(format!("Game {} ({} Ko situations)", 
+                        ui.collapsing(format!("Game {} ({} Ko situations)",
                             &game_id[..8], situations.len()), |ui| {
                             for (i, ko) in situations.iter().enumerate() {
-                                ui.label(format!("Ko #{}: Move {} at ({}, {})", 
+                                ui.label(format!("Ko #{}: Move {} at ({}, {})",
                                     i + 1, ko.capture_move, ko.ko_point.x, ko.ko_point.y));
                                 if let Some(recap) = ko.recapture_move {
                                     ui.label(format!("  Recaptured at move {}", recap));
@@ -246,11 +246,11 @@ impl NeuralTrainingUI {
             ui.label("No Ko analysis performed yet. Click 'Analyze All Games' to start.");
         }
     }
-    
+
     fn render_messages(&mut self, ui: &mut egui::Ui) {
         if !self.messages.is_empty() {
             ui.separator();
-            
+
             // Show latest messages
             let messages_to_show: Vec<_> = self.messages.iter().rev().take(5).collect();
             for (msg_type, msg) in messages_to_show {
@@ -261,22 +261,22 @@ impl NeuralTrainingUI {
                 };
                 ui.colored_label(color, msg);
             }
-            
+
             // Clear old messages button
             if self.messages.len() > 5 && ui.small_button("Clear messages").clicked() {
                 self.messages.clear();
             }
         }
     }
-    
+
     fn process_uploaded_games(&mut self, games: Vec<GameState>) {
         for game in games {
             let game_id = game.id.clone();
-            
+
             // Analyze Ko situations
             let mut detector = KoDetector::new();
             let mut board = p2pgo_core::board::Board::new(game.board_size);
-            
+
             for mv in &game.moves {
                 if let p2pgo_core::Move::Place { x, y, color } = mv {
                     board.place(p2pgo_core::Coord::new(*x, *y), *color);
@@ -284,9 +284,9 @@ impl NeuralTrainingUI {
                     detector.process_move(&board, mv, &[]);
                 }
             }
-            
+
             let has_ko = !detector.get_ko_situations().is_empty();
-            
+
             let info = GameInfo {
                 game_state: game.clone(),
                 source_file: None,
@@ -295,29 +295,29 @@ impl NeuralTrainingUI {
                 move_count: game.moves.len(),
                 result: format!("{:?}", game.result),
             };
-            
+
             self.game_manager.games.insert(game_id.clone(), info);
-            self.messages.push((MessageType::Success, 
+            self.messages.push((MessageType::Success,
                 format!("Uploaded game {} ({} moves)", &game_id[..8], game.moves.len())));
         }
     }
-    
+
     fn analyze_ko_situations(&mut self) {
         let mut total_ko = 0;
         let mut games_with_ko = 0;
         let mut ko_situations = Vec::new();
-        
+
         for (game_id, info) in &self.game_manager.games {
             let mut detector = KoDetector::new();
             let mut board = p2pgo_core::board::Board::new(info.game_state.board_size);
-            
+
             for mv in &info.game_state.moves {
                 if let p2pgo_core::Move::Place { x, y, color } = mv {
                     board.place(p2pgo_core::Coord::new(*x, *y), *color);
                     detector.process_move(&board, mv, &[]);
                 }
             }
-            
+
             let ko_list = detector.get_ko_situations();
             if !ko_list.is_empty() {
                 games_with_ko += 1;
@@ -325,28 +325,28 @@ impl NeuralTrainingUI {
                 ko_situations.push((game_id.clone(), ko_list.to_vec()));
             }
         }
-        
+
         self.ko_analysis = KoAnalysisResults {
             total_games_analyzed: self.game_manager.games.len(),
             games_with_ko,
             total_ko_situations: total_ko,
             ko_situations,
         };
-        
-        self.messages.push((MessageType::Success, 
-            format!("Analyzed {} games, found {} Ko situations", 
+
+        self.messages.push((MessageType::Success,
+            format!("Analyzed {} games, found {} Ko situations",
                 self.game_manager.games.len(), total_ko)));
     }
-    
+
     fn generate_ko_patterns(&mut self) {
         use p2pgo_core::ko_generator::KoTrainingGenerator;
-        
+
         let generator = KoTrainingGenerator::new();
         let ko_games = generator.generate_training_situations(5);
-        
+
         for (i, game) in ko_games.into_iter().enumerate() {
             let game_id = format!("synthetic_ko_{}", i);
-            
+
             let info = GameInfo {
                 game_state: game,
                 source_file: Some("Generated Ko Pattern".to_string()),
@@ -355,11 +355,11 @@ impl NeuralTrainingUI {
                 move_count: 10, // Approximate
                 result: "Ko Training Pattern".to_string(),
             };
-            
+
             self.game_manager.games.insert(game_id, info);
         }
-        
-        self.messages.push((MessageType::Success, 
+
+        self.messages.push((MessageType::Success,
             "Generated 5 Ko training patterns".to_string()));
     }
 }
@@ -373,12 +373,12 @@ impl SGFUploadComponent {
             parser: SGFParser::new(),
         }
     }
-    
+
     fn render(&mut self, ui: &mut egui::Ui) -> Option<Vec<GameState>> {
         let mut uploaded_games = None;
-        
+
         ui.heading("Upload SGF Files");
-        
+
         // File selection
         ui.horizontal(|ui| {
             if ui.button("📁 Select Files...").clicked() {
@@ -389,7 +389,7 @@ impl SGFUploadComponent {
                     self.selected_files = paths;
                 }
             }
-            
+
             if ui.button("📂 Select Folder...").clicked() {
                 if let Some(path) = rfd::FileDialog::new().pick_folder() {
                     // Find all SGF files in folder
@@ -403,27 +403,27 @@ impl SGFUploadComponent {
                 }
             }
         });
-        
+
         // Show selected files
         if !self.selected_files.is_empty() {
             ui.separator();
             ui.label(format!("Selected {} files", self.selected_files.len()));
-            
+
             egui::ScrollArea::vertical().max_height(100.0).show(ui, |ui| {
                 for file in &self.selected_files {
                     ui.label(format!("• {}", file.file_name().unwrap().to_string_lossy()));
                 }
             });
-            
+
             if ui.button("🚀 Upload All").clicked() {
                 uploaded_games = Some(self.process_files());
             }
         }
-        
+
         // Paste option
         ui.separator();
         ui.label("Or paste SGF content:");
-        
+
         if ui.text_edit_multiline(&mut self.paste_content).changed() && !self.paste_content.is_empty() {
             // Auto-parse on paste
             if let Ok(game) = self.parser.parse(&self.paste_content) {
@@ -431,7 +431,7 @@ impl SGFUploadComponent {
                 self.paste_content.clear();
             }
         }
-        
+
         // Show progress
         if let Some((current, total)) = self.upload_progress {
             ui.separator();
@@ -439,22 +439,22 @@ impl SGFUploadComponent {
             ui.add(egui::ProgressBar::new(progress)
                 .text(format!("{}/{} files processed", current, total)));
         }
-        
+
         uploaded_games
     }
-    
+
     fn process_files(&mut self) -> Vec<GameState> {
         let mut games = Vec::new();
         let total = self.selected_files.len();
-        
+
         for (i, path) in self.selected_files.iter().enumerate() {
             self.upload_progress = Some((i, total));
-            
+
             if let Ok(game) = self.parser.parse_file(path) {
                 games.push(game);
             }
         }
-        
+
         self.upload_progress = None;
         self.selected_files.clear();
         games
@@ -474,10 +474,10 @@ impl GameManager {
             },
         }
     }
-    
+
     fn render(&mut self, ui: &mut egui::Ui) {
         ui.heading(format!("Game Library ({} games)", self.games.len()));
-        
+
         // Filter controls
         ui.horizontal(|ui| {
             ui.label("Filter:");
@@ -488,7 +488,7 @@ impl GameManager {
             ui.checkbox(&mut self.filter.only_with_ko, "Only with Ko");
             ui.checkbox(&mut self.filter.only_without_ko, "Only without Ko");
         });
-        
+
         // Selection controls
         ui.horizontal(|ui| {
             if ui.button("Select All").clicked() {
@@ -499,16 +499,16 @@ impl GameManager {
             }
             ui.label(format!("{} selected", self.selected_games.len()));
         });
-        
+
         ui.separator();
-        
+
         // Game list
         egui::ScrollArea::vertical().max_height(400.0).show(ui, |ui| {
             for (game_id, info) in &self.games {
                 if self.matches_filter(info) {
                     let is_selected = self.selected_games.contains(game_id);
                     let mut selected = is_selected;
-                    
+
                     ui.horizontal(|ui| {
                         if ui.checkbox(&mut selected, "").changed() {
                             if selected && !is_selected {
@@ -517,36 +517,36 @@ impl GameManager {
                                 self.selected_games.retain(|id| id != game_id);
                             }
                         }
-                        
+
                         ui.label(format!("{} - {} moves", &game_id[..8], info.move_count));
-                        
+
                         if info.has_ko {
                             ui.colored_label(egui::Color32::YELLOW, "Ko");
                         }
-                        
+
                         ui.label(&info.result);
                     });
                 }
             }
         });
     }
-    
+
     fn matches_filter(&self, info: &GameInfo) -> bool {
         if info.move_count < self.filter.min_moves || info.move_count > self.filter.max_moves {
             return false;
         }
-        
+
         if self.filter.only_with_ko && !info.has_ko {
             return false;
         }
-        
+
         if self.filter.only_without_ko && info.has_ko {
             return false;
         }
-        
+
         true
     }
-    
+
     fn get_filtered_games(&self) -> Vec<String> {
         self.games.iter()
             .filter(|(_, info)| self.matches_filter(info))
@@ -568,51 +568,51 @@ impl TrainingManager {
             },
         }
     }
-    
+
     fn render(&mut self, ui: &mut egui::Ui, game_manager: &GameManager) -> Option<TrainingData> {
         let mut training_data = None;
-        
+
         ui.heading("Training Configuration");
-        
+
         // Config settings
         egui::Grid::new("training_config").show(ui, |ui| {
             ui.label("Include Ko positions:");
             ui.checkbox(&mut self.config.include_ko_positions, "");
             ui.end_row();
-            
+
             ui.label("Data augmentation:");
             ui.checkbox(&mut self.config.augment_data, "");
             ui.end_row();
-            
+
             ui.label("Validation split:");
             ui.add(egui::Slider::new(&mut self.config.validation_split, 0.1..=0.4));
             ui.end_row();
-            
+
             ui.label("Batch size:");
             ui.add(egui::DragValue::new(&mut self.config.batch_size).speed(1));
             ui.end_row();
         });
-        
+
         ui.separator();
-        
+
         // Create dataset button
         if !game_manager.selected_games.is_empty() {
-            if ui.button(format!("🧬 Create Training Dataset ({} games)", 
+            if ui.button(format!("🧬 Create Training Dataset ({} games)",
                 game_manager.selected_games.len())).clicked() {
                 training_data = Some(self.create_training_data(game_manager));
             }
         } else {
             ui.label("Select games from the Game Library tab first");
         }
-        
+
         // Show existing datasets
         if !self.datasets.is_empty() {
             ui.separator();
             ui.heading("Training Datasets");
-            
+
             for dataset in &self.datasets {
                 ui.horizontal(|ui| {
-                    ui.label(format!("Dataset {}: {} games, {} positions", 
+                    ui.label(format!("Dataset {}: {} games, {} positions",
                         &dataset.id[..8], dataset.game_count, dataset.total_positions));
                     if dataset.ko_positions > 0 {
                         ui.label(format!("({} Ko positions)", dataset.ko_positions));
@@ -620,7 +620,7 @@ impl TrainingManager {
                 });
             }
         }
-        
+
         // Training status
         match &self.training_status {
             TrainingStatus::Idle => {}
@@ -633,17 +633,17 @@ impl TrainingManager {
                 ui.label(format!("Training... ETA: {}", eta));
             }
             TrainingStatus::Completed { accuracy } => {
-                ui.colored_label(egui::Color32::GREEN, 
+                ui.colored_label(egui::Color32::GREEN,
                     format!("✅ Training completed! Accuracy: {:.1}%", accuracy * 100.0));
             }
             TrainingStatus::Failed(error) => {
                 ui.colored_label(egui::Color32::RED, format!("❌ Training failed: {}", error));
             }
         }
-        
+
         training_data
     }
-    
+
     fn create_training_data(&mut self, game_manager: &GameManager) -> TrainingData {
         // Placeholder - in real implementation, this would process selected games
         let dataset = TrainingDataset {
@@ -653,9 +653,9 @@ impl TrainingManager {
             ko_positions: 0,
             created_time: std::time::Instant::now(),
         };
-        
+
         self.datasets.push(dataset);
-        
+
         // Return placeholder training data
         TrainingData {
             states: vec![],

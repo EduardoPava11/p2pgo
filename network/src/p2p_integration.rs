@@ -93,15 +93,15 @@ impl P2PIntegration {
         // Create channels
         let (p2p_tx, p2p_rx) = mpsc::unbounded_channel();
         let (discovery_tx, discovery_rx) = mpsc::unbounded_channel();
-        
+
         // Create P2P node
         let node = P2PNode::new(keypair, config, p2p_tx).await?;
         let node = Arc::new(RwLock::new(node));
-        
+
         // Create discovery service
         let (discovery_p2p_tx, discovery_p2p_rx) = mpsc::unbounded_channel();
         let discovery = Arc::new(GameDiscovery::new(discovery_p2p_rx, discovery_tx));
-        
+
         Ok(Self {
             node,
             discovery,
@@ -111,17 +111,17 @@ impl P2PIntegration {
             ui_event_tx,
         })
     }
-    
+
     /// Start the P2P integration
     pub async fn start(mut self) -> Result<()> {
         info!("Starting P2P integration");
-        
+
         // Start P2P node
         {
             let mut node = self.node.write().await;
             node.start().await?;
         }
-        
+
         // Start discovery service
         let discovery = self.discovery.clone();
         tokio::spawn(async move {
@@ -129,18 +129,18 @@ impl P2PIntegration {
                 error!("Discovery service error: {}", e);
             }
         });
-        
+
         // Start reconnection manager
         let sessions = self.game_sessions.clone();
         let node = self.node.clone();
         tokio::spawn(async move {
             reconnection_manager(sessions, node).await;
         });
-        
+
         // Handle events
         self.run_event_loop().await
     }
-    
+
     /// Main event loop
     async fn run_event_loop(mut self) -> Result<()> {
         loop {
@@ -154,7 +154,7 @@ impl P2PIntegration {
             }
         }
     }
-    
+
     /// Handle P2P events
     async fn handle_p2p_event(&mut self, event: P2PEvent) -> Result<()> {
         match event {
@@ -172,7 +172,7 @@ impl P2PIntegration {
         }
         Ok(())
     }
-    
+
     /// Handle discovery events
     async fn handle_discovery_event(&mut self, event: DiscoveryEvent) -> Result<()> {
         match event {
@@ -188,11 +188,11 @@ impl P2PIntegration {
         }
         Ok(())
     }
-    
+
     /// Handle peer connection
     async fn handle_peer_connected(&mut self, peer_id: PeerId) -> Result<()> {
         debug!("Peer connected: {}", peer_id);
-        
+
         // Check if this peer is part of any game session
         let mut sessions = self.game_sessions.write().await;
         for (game_id, session) in sessions.iter_mut() {
@@ -200,51 +200,51 @@ impl P2PIntegration {
                 info!("Game {} peer reconnected", game_id);
                 session.connection_state = ConnectionState::Connected;
                 session.reconnect_attempts = 0;
-                
+
                 self.ui_event_tx.send(P2PIntegrationEvent::GameConnected {
                     game_id: game_id.clone(),
                     peer_id,
                 })?;
             }
         }
-        
+
         self.update_connection_stats().await?;
         Ok(())
     }
-    
+
     /// Handle peer disconnection
     async fn handle_peer_disconnected(&mut self, peer_id: PeerId) -> Result<()> {
         warn!("Peer disconnected: {}", peer_id);
-        
+
         // Mark affected game sessions as disconnected
         let mut sessions = self.game_sessions.write().await;
         for (game_id, session) in sessions.iter_mut() {
             if session.remote_peer == peer_id && session.connection_state == ConnectionState::Connected {
                 info!("Game {} peer disconnected, will attempt reconnection", game_id);
                 session.connection_state = ConnectionState::Disconnected;
-                
+
                 self.ui_event_tx.send(P2PIntegrationEvent::GameDisconnected {
                     game_id: game_id.clone(),
                     reason: "Peer disconnected".to_string(),
                 })?;
             }
         }
-        
+
         self.update_connection_stats().await?;
         Ok(())
     }
-    
+
     /// Create a new game
     pub async fn create_game(&self, game_id: GameId, channel: Arc<GameChannel>, metadata: GameMetadata) -> Result<()> {
         info!("Creating game {} on P2P network", game_id);
-        
+
         // Publish game to network
         let mut node = self.node.write().await;
         node.publish_game(&game_id, metadata).await?;
-        
+
         Ok(())
     }
-    
+
     /// Join a game
     pub async fn join_game(
         &self,
@@ -253,7 +253,7 @@ impl P2PIntegration {
         channel: Arc<GameChannel>,
     ) -> Result<()> {
         info!("Joining game {} hosted by {}", game_id, host_peer);
-        
+
         // Create game session
         let session = GameSession {
             game_id: game_id.clone(),
@@ -262,76 +262,76 @@ impl P2PIntegration {
             connection_state: ConnectionState::Disconnected,
             reconnect_attempts: 0,
         };
-        
+
         self.game_sessions.write().await.insert(game_id.clone(), session);
-        
+
         // Connect to host
         self.connect_to_game_peer(host_peer).await?;
-        
+
         Ok(())
     }
-    
+
     /// Connect to a game peer
     async fn connect_to_game_peer(&self, peer_id: PeerId) -> Result<()> {
         let mut node = self.node.write().await;
-        
+
         // First, check if we need a relay
         let connected_peers = node.connected_peers().await;
         if connected_peers.contains(&peer_id) {
             info!("Already connected to {}", peer_id);
             return Ok(());
         }
-        
+
         // Try to connect
         // The node will automatically use relay if needed
         node.connect_peer(peer_id, vec![]).await?;
-        
+
         Ok(())
     }
-    
+
     /// Leave a game
     pub async fn leave_game(&self, game_id: &GameId) -> Result<()> {
         info!("Leaving game {}", game_id);
-        
+
         self.game_sessions.write().await.remove(game_id);
         self.update_connection_stats().await?;
-        
+
         Ok(())
     }
-    
+
     /// Update connection statistics
     async fn update_connection_stats(&self) -> Result<()> {
         let node = self.node.read().await;
         let sessions = self.game_sessions.read().await;
-        
+
         let connected_peers = node.connected_peers().await.len();
         let active_games = sessions.values()
             .filter(|s| s.connection_state == ConnectionState::Connected)
             .count();
         let relay_active = !node.known_relays().await.is_empty();
-        
+
         self.ui_event_tx.send(P2PIntegrationEvent::ConnectionStats {
             connected_peers,
             active_games,
             relay_active,
         })?;
-        
+
         Ok(())
     }
-    
+
     /// Get relay mode
     pub fn relay_mode(&self) -> RelayMode {
         // This would be retrieved from config
         RelayMode::Normal
     }
-    
+
     /// Set relay mode
     pub async fn set_relay_mode(&mut self, mode: RelayMode) -> Result<()> {
         info!("Setting relay mode to {:?}", mode);
-        
+
         // In a full implementation, this would reconfigure the P2P node
         // For now, just log the change
-        
+
         Ok(())
     }
 }
@@ -342,10 +342,10 @@ async fn reconnection_manager(
     node: Arc<RwLock<P2PNode>>,
 ) {
     let mut interval = tokio::time::interval(std::time::Duration::from_secs(10));
-    
+
     loop {
         interval.tick().await;
-        
+
         // Check for disconnected sessions
         let mut to_reconnect = vec![];
         {
@@ -356,18 +356,18 @@ async fn reconnection_manager(
                 }
             }
         }
-        
+
         // Attempt reconnections
         for (game_id, peer_id) in to_reconnect {
             debug!("Attempting to reconnect game {} to peer {}", game_id, peer_id);
-            
+
             // Update state
             {
                 let mut sessions = sessions.write().await;
                 if let Some(session) = sessions.get_mut(&game_id) {
                     session.connection_state = ConnectionState::Reconnecting;
                     session.reconnect_attempts += 1;
-                    
+
                     // Give up after 10 attempts
                     if session.reconnect_attempts > 10 {
                         warn!("Failed to reconnect game {} after 10 attempts", game_id);
@@ -376,7 +376,7 @@ async fn reconnection_manager(
                     }
                 }
             }
-            
+
             // Try to reconnect
             let mut node = node.write().await;
             if let Err(e) = node.connect_peer(peer_id, vec![]).await {
