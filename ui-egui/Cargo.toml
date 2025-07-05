@@ -50,7 +50,8 @@ libp2p = { version = "0.53", features = ["kad", "gossipsub", "relay"] }
 # Internal crates
 p2pgo-core = { path = "../core" }
 p2pgo-network = { path = "../network" }
-# p2pgo-neural = { path = "../neural" }
+p2pgo-neural = { path = "../neural" }
+# p2pgo-ui-v2 = { path = "../ui-v2" } # Cyclic dependency
 trainer = { path = "../trainer" }
 # Logging
 flexi_logger = { version = "0.25", features = ["async", "compress"] }
@@ -66,12 +67,13 @@ rfd = "0.12"
 dirs = "5.0"
 # HTTP client for update checking
 reqwest = { version = "0.11", features = ["json"], optional = true }
+tempfile = "3.0"
 
 [features]
-default = ["native", "stub", "arboard", "reqwest"]
+default = ["native", "libp2p", "arboard", "reqwest"]
 native = ["eframe/default"]
 headless = ["p2pgo-network/headless"]
-iroh = ["p2pgo-network/iroh"]
+libp2p = ["p2pgo-network/libp2p"]
 stub = ["p2pgo-network/stub"]
 offline = []
 

@@ -13,11 +13,12 @@ use p2pgo_core::{GameState, GameEvent, Coord};
 use p2pgo_network::{
     lobby::Lobby,
     game_channel::GameChannel,
-    IrohCtx,
+    NodeContext,
 };
 use trainer::GoMini6E;
 use burn::backend::wgpu::Wgpu;
 use burn::tensor::{Tensor, backend::Backend};
+use libp2p;
 
 use crate::msg::{UiToNet, NetToUi};
 
@@ -108,7 +109,7 @@ struct NetworkWorker {
     config: crate::app::AppConfig,
     #[allow(dead_code)]
     lobby_rx: tokio::sync::broadcast::Receiver<p2pgo_network::lobby::LobbyEvent>,
-    iroh_ctx: IrohCtx,
+    iroh_ctx: NodeContext,
     // AI model lazily loaded on first ghost move request
     ai_model: Option<Rc<Mutex<GoMini6E<Wgpu>>>>,
     // Gossip buffer size configuration
@@ -116,6 +117,8 @@ struct NetworkWorker {
     gossip_buffer_size: usize,
     // Score acceptance tracking
     score_trackers: std::collections::HashMap<u8, ScoreAcceptanceTracker>,
+    // Training task handle
+    training_handle: Option<tokio::task::JoinHandle<()>>,
     #[cfg(test)]
     last_coord: Option<p2pgo_core::Coord>,
 }
@@ -130,7 +133,9 @@ impl NetworkWorker {
         let lobby_rx = lobby.subscribe();
         
         // Initialize the iroh context
-        let iroh_ctx = IrohCtx::new();
+        let keypair = libp2p::identity::Keypair::generate_ed25519();
+        let peer_id = libp2p::PeerId::from(keypair.public());
+        let iroh_ctx = NodeContext::new(peer_id);
         
         // Get and send the local node ID to UI
         let node_id = iroh_ctx.node_id().to_string();
@@ -157,6 +162,7 @@ impl NetworkWorker {
             ai_model: None,
             gossip_buffer_size: 32, // Default buffer size
             score_trackers: std::collections::HashMap::new(),
+            training_handle: None,
             #[cfg(test)]
             last_coord: None,
         })
@@ -289,6 +295,21 @@ impl NetworkWorker {
                             }
                             UiToNet::RunConnectionTest => {
                                 self.run_connection_test().await?;
+                            }
+                            UiToNet::StartTraining { sgf_paths } => {
+                                self.handle_start_training(sgf_paths).await?;
+                            }
+                            UiToNet::CancelTraining => {
+                                self.handle_cancel_training().await?;
+                            }
+                            UiToNet::SetRelayMode { mode } => {
+                                self.handle_set_relay_mode(mode).await?;
+                            }
+                            UiToNet::SetTrainingConsent { consent } => {
+                                self.handle_set_training_consent(consent).await?;
+                            }
+                            UiToNet::RequestRelayStats => {
+                                self.handle_request_relay_stats().await?;
                             }
                         }
                     }
@@ -916,6 +937,20 @@ impl NetworkWorker {
                 score_proof: score_proof.clone() 
             });
             
+            // Archive the finished game to CBOR for training data
+            if let Some(game_state) = &active_game.game_state {
+                // Get opponent name (could be from game metadata or just "opponent")
+                let opponent_name = "opponent"; // TODO: Get actual opponent name from game metadata
+                
+                // Archive the game asynchronously
+                p2pgo_core::archiver::archive_finished_game_async(
+                    game_state.clone(),
+                    opponent_name.to_string()
+                );
+                
+                tracing::info!("Game archived for training data");
+            }
+            
             tracing::info!("Score accepted and stored for training. Games completed: {}", self.config.games_finished);
         } else {
             tracing::warn!("Cannot accept score: no active game for board size {}", self.default_board_size);
@@ -1015,6 +1050,110 @@ impl NetworkWorker {
         
         // Send results back to UI
         let _ = self.ui_tx.send(NetToUi::ConnectionTestResults { results });
+        
+        Ok(())
+    }
+    
+    /// Handle start training request
+    async fn handle_start_training(&mut self, sgf_paths: Vec<std::path::PathBuf>) -> anyhow::Result<()> {
+        // TODO: Re-enable training functionality
+        // use crate::training::train_from_sgf_files;
+        
+        tracing::info!("Starting neural network training with {} SGF files (disabled for now)", sgf_paths.len());
+        
+        // Clone UI sender for progress updates
+        let ui_tx = self.ui_tx.clone();
+        
+        // Spawn training task to avoid blocking the worker
+        let training_handle = tokio::spawn(async move {
+            // Progress callback
+            let progress_tx = ui_tx.clone();
+            let progress_callback = move |progress: f32| {
+                let _ = progress_tx.send(NetToUi::TrainingProgress { progress });
+            };
+            
+            // Run training - temporarily disabled
+            // match train_from_sgf_files(sgf_paths, progress_callback).await {
+            //     Ok(stats) => {
+            //         tracing::info!("Training completed successfully: {} games, {} positions", 
+            //                      stats.games_trained, stats.total_positions);
+            //         let _ = ui_tx.send(NetToUi::TrainingCompleted { stats });
+            //     }
+            //     Err(e) => {
+            //         tracing::error!("Training failed: {}", e);
+            //         let _ = ui_tx.send(NetToUi::TrainingError { 
+            //             message: format!("Training failed: {}", e) 
+            //         });
+            //     }
+            // }
+            
+            // Temporary placeholder - just report training as disabled
+            let _ = ui_tx.send(NetToUi::TrainingError { 
+                message: "Training functionality temporarily disabled".to_string()
+            });
+        });
+        
+        // Store handle for potential cancellation
+        self.training_handle = Some(training_handle);
+        
+        Ok(())
+    }
+    
+    /// Handle cancel training request
+    async fn handle_cancel_training(&mut self) -> anyhow::Result<()> {
+        if let Some(handle) = self.training_handle.take() {
+            tracing::info!("Cancelling training task");
+            handle.abort();
+            let _ = self.ui_tx.send(NetToUi::TrainingError { 
+                message: "Training cancelled by user".to_string() 
+            });
+        }
+        Ok(())
+    }
+    
+    /// Handle relay mode change
+    async fn handle_set_relay_mode(&mut self, mode: p2pgo_network::relay_config::RelayMode) -> anyhow::Result<()> {
+        tracing::info!("Setting relay mode to: {:?}", mode);
+        
+        // TODO: Actually configure the relay with the new mode
+        // For now, just acknowledge the change
+        let _ = self.ui_tx.send(NetToUi::RelayModeChanged { mode: mode.clone() });
+        
+        // If switching to Provider mode, prompt for training consent
+        if matches!(mode, p2pgo_network::relay_config::RelayMode::Provider { .. }) {
+            let _ = self.ui_tx.send(NetToUi::TrainingConsentStatus { enabled: false });
+        }
+        
+        Ok(())
+    }
+    
+    /// Handle training consent change
+    async fn handle_set_training_consent(&mut self, consent: bool) -> anyhow::Result<()> {
+        tracing::info!("Setting training consent to: {}", consent);
+        
+        // TODO: Actually configure the training data sharing
+        // For now, just acknowledge the change
+        let _ = self.ui_tx.send(NetToUi::TrainingConsentStatus { enabled: consent });
+        
+        Ok(())
+    }
+    
+    /// Handle relay stats request
+    async fn handle_request_relay_stats(&mut self) -> anyhow::Result<()> {
+        tracing::debug!("Relay stats requested");
+        
+        // TODO: Get actual stats from the relay service
+        // For now, send mock stats
+        let stats = p2pgo_network::relay_config::RelayStats {
+            bytes_relayed: 125_000_000, // 125 MB
+            connections_relayed: 42,
+            active_circuits: 3,
+            active_reservations: 5,
+            games_relayed: 12,
+            training_data_earned: 25, // 25 MB
+        };
+        
+        let _ = self.ui_tx.send(NetToUi::RelayStatsUpdate { stats });
         
         Ok(())
     }

@@ -4,7 +4,7 @@ use std::sync::{Arc, RwLock};
 use std::time::{Duration, Instant};
 use std::collections::{HashMap, VecDeque};
 use libp2p::{PeerId, Multiaddr};
-use tokio::sync::{mpsc, broadcast};
+use tokio::sync::broadcast;
 use anyhow::{Result, anyhow};
 use serde::{Serialize, Deserialize};
 
@@ -84,7 +84,7 @@ pub enum RelayEvent {
 }
 
 /// Decisions made by the federation
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone)]
 pub enum FederationDecision {
     /// Elect new primary relay
     ElectPrimary { peer_id: PeerId },
@@ -99,18 +99,19 @@ pub enum FederationDecision {
 /// Raft consensus for relay federation
 pub struct RaftConsensus {
     /// Current term
-    term: u64,
+    _term: u64,
     /// Current state
     state: RaftState,
     /// Vote log
-    votes: HashMap<u64, Vec<PeerId>>,
+    _votes: HashMap<u64, Vec<PeerId>>,
     /// Decision log
-    decisions: VecDeque<FederationDecision>,
+    _decisions: VecDeque<FederationDecision>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum RaftState {
     Follower,
+    #[allow(dead_code)]
     Candidate,
     Leader,
 }
@@ -118,9 +119,9 @@ enum RaftState {
 /// Consistent hash load balancer
 pub struct ConsistentHashLoadBalancer {
     /// Hash ring
-    ring: HashMap<u64, PeerId>,
+    _ring: HashMap<u64, PeerId>,
     /// Virtual nodes per physical node
-    virtual_nodes: u32,
+    _virtual_nodes: u32,
     /// Hash function
     hasher: blake3::Hasher,
 }
@@ -347,10 +348,10 @@ impl RelayFederation {
 impl RaftConsensus {
     fn new() -> Self {
         Self {
-            term: 0,
+            _term: 0,
             state: RaftState::Follower,
-            votes: HashMap::new(),
-            decisions: VecDeque::with_capacity(1000),
+            _votes: HashMap::new(),
+            _decisions: VecDeque::with_capacity(1000),
         }
     }
     
@@ -367,8 +368,8 @@ impl RaftConsensus {
 impl ConsistentHashLoadBalancer {
     fn new() -> Self {
         Self {
-            ring: HashMap::new(),
-            virtual_nodes: 150,
+            _ring: HashMap::new(),
+            _virtual_nodes: 150,
             hasher: blake3::Hasher::new(),
         }
     }
@@ -382,7 +383,7 @@ impl ConsistentHashLoadBalancer {
     
     fn hash_peer_id(&self, peer_id: &PeerId) -> u64 {
         let mut hasher = self.hasher.clone();
-        hasher.update(peer_id.to_bytes());
+        hasher.update(&peer_id.to_bytes());
         let hash = hasher.finalize();
         u64::from_le_bytes(hash.as_bytes()[0..8].try_into().unwrap())
     }

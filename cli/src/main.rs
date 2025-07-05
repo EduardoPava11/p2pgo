@@ -75,10 +75,12 @@ mod render;
 use clap::{Parser, ValueEnum};
 use tokio::signal;
 use tokio::io::AsyncBufReadExt;
-use p2pgo_core::{GameState, Move, Coord};
+use p2pgo_core::{GameState, Move, Coord, Color};
+use libp2p;
 use p2pgo_network::{
-    Lobby,
-    GameChannel,
+    lobby::Lobby,
+    game_channel::GameChannel,
+    NodeContext,
 };
 
 /// Command-line arguments
@@ -150,10 +152,10 @@ async fn main() -> Result<()> {
     // Parse command-line arguments
     let args = Args::parse();
     
-    // Initialize crash logger
-    if let Err(e) = p2pgo_network::init_crash_logger().await {
+    // TODO: Re-enable crash logger
+    /*if let Err(e) = p2pgo_network::init_crash_logger().await {
         eprintln!("Warning: Failed to initialize crash logger: {}", e);
-    }
+    }*/
     
     // Setup global panic handler
     std::panic::set_hook(Box::new(|panic_info| {
@@ -164,12 +166,12 @@ async fn main() -> Result<()> {
         let error_clone = error.clone();
         let context_clone = context.clone();
         
-        // Log the crash asynchronously
-        tokio::spawn(async move {
+        // TODO: Re-enable crash logger
+        /*tokio::spawn(async move {
             if let Err(e) = p2pgo_network::log_crash(&error_clone, &context_clone).await {
                 eprintln!("Failed to log crash: {}", e);
             }
-        });
+        });*/
         
         eprintln!("PANIC: {}", error);
     }));
@@ -197,7 +199,9 @@ async fn main() -> Result<()> {
     let lobby = Lobby::new();
     
     // Initialize Iroh context
-    let iroh_ctx = p2pgo_network::IrohCtx::new().await?;
+    let keypair = libp2p::identity::Keypair::generate_ed25519();
+    let peer_id = libp2p::PeerId::from(keypair.public());
+    let iroh_ctx = NodeContext::new(peer_id);
     
     // Handle ticket connection if provided
     if let Some(ticket) = args.ticket.as_ref() {
@@ -206,7 +210,8 @@ async fn main() -> Result<()> {
         println!("Connection established successfully");
         
         // Generate our own ticket for the other player to connect back
-        match iroh_ctx.ticket().await {
+        let ticket = iroh_ctx.ticket();
+        match ticket {
             Ok(my_ticket) => println!("Your ticket: {}", my_ticket),
             Err(e) => println!("Warning: Failed to generate ticket: {}", e),
         }
@@ -263,13 +268,9 @@ async fn main() -> Result<()> {
         println!("Starting spectator-only seed node...");
         
         // Generate and display a ticket for others to connect
-        match iroh_ctx.ticket().await {
-            Ok(ticket) => {
-                println!("Spectator seed node ticket (share with players):\n{}", ticket);
-                println!("This node will relay network traffic without participating in games.");
-            }
-            Err(e) => println!("Warning: Failed to generate ticket: {}", e),
-        }
+        let ticket = iroh_ctx.ticket();
+        println!("Spectator seed node ticket (share with players):\n{}", ticket);
+        println!("This node will relay network traffic without participating in games.");
         
         // Keep the node running as a relay seed
         println!("Running as spectator seed node. Press Ctrl+C to stop.");
@@ -298,16 +299,21 @@ async fn main() -> Result<()> {
             println!("Game created with ID: {}", game_id);
             
             // Advertise the game via gossip
-            match iroh_ctx.advertise_game(&game_id, args.size).await {
+            let game_info = p2pgo_network::lobby::GameInfo {
+                id: game_id.clone(),
+                name: Some(format!("CLI Game {}", args.size)),
+                board_size: args.size,
+                started: false,
+                needs_password: false,
+            };
+            match iroh_ctx.advertise_game(&game_info).await {
                 Ok(_) => println!("Game advertisement broadcast successfully"),
                 Err(e) => println!("Warning: Failed to advertise game: {}", e),
             }
             
             // Generate and display a ticket for direct connections
-            match iroh_ctx.ticket().await {
-                Ok(ticket) => println!("Share this ticket with opponent:\n{}", ticket),
-                Err(e) => println!("Warning: Failed to generate ticket: {}", e),
-            }
+            let ticket = iroh_ctx.ticket();
+            println!("Share this ticket with opponent:\n{}", ticket);
             
             // Get the game channel
             let channel = lobby.get_game_channel(&game_id).await?;

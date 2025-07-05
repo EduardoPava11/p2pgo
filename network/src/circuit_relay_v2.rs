@@ -16,7 +16,8 @@ impl PlayerId {
     /// Create a new random player ID
     pub fn new() -> Self {
         let mut id = [0u8; 32];
-        getrandom::getrandom(&mut id).expect("Failed to generate random ID");
+        use rand::RngCore;
+        rand::thread_rng().fill_bytes(&mut id);
         Self(id)
     }
     
@@ -334,7 +335,8 @@ impl CircuitRelayNode {
     /// Create unique session ID
     fn create_session_id(&self) -> [u8; 16] {
         let mut id = [0u8; 16];
-        getrandom::getrandom(&mut id).expect("Failed to generate session ID");
+        use rand::RngCore;
+        rand::thread_rng().fill_bytes(&mut id);
         id
     }
     

@@ -4,7 +4,8 @@
 
 use anyhow::Result;
 use clap::Parser;
-use p2pgo_network::relay_server::{RelayServerBuilder, GossipConfig};
+use p2pgo_network::relay_server::RelayServerBuilder;
+use p2pgo_network::relay_mesh::GossipConfig;
 use std::time::Duration;
 use tracing::info;
 
@@ -73,7 +74,7 @@ async fn main() -> Result<()> {
     info!("  Store history: {}", args.store_history);
     
     // Parse bootstrap relays
-    let bootstrap_relays = args.bootstrap
+    let bootstrap_relays: Vec<String> = args.bootstrap
         .map(|s| s.split(',').map(String::from).collect())
         .unwrap_or_default();
     
@@ -103,7 +104,7 @@ async fn main() -> Result<()> {
     
     server.start().await?;
     
-    info!("Relay server running on {}", server.node.address);
+    info!("Relay server running");
     info!("Press Ctrl+C to stop");
     
     // Wait for shutdown signal

@@ -12,4 +12,3 @@ rand = "0.8"
 [profile.release]
 opt-level = "s"  # Optimize for size
 lto = true
-panic = "abort"

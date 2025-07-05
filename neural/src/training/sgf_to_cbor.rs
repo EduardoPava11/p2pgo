@@ -4,10 +4,10 @@
 //! It replays games move by move, extracting board positions, moves played, and game outcomes.
 
 use crate::cbor_format::{
-    CBORTrainingBatch, TrainingSource, TrainingExample, FeaturePlanes, PolicyTarget,
+    CBORTrainingBatch, TrainingSource, TrainingExample, PolicyTarget,
     ExampleContext, BatchMetadata, create_feature_planes,
 };
-use p2pgo_core::{GameState, Move, Color, Coord};
+use p2pgo_core::{GameState, Move, Color};
 use anyhow::{Result, anyhow};
 use std::path::Path;
 use std::fs;
@@ -204,10 +204,25 @@ impl SgfToCborConverter {
             }
             
             // Extract features from current position
+            // Create a Board struct from the GameState
+            let mut board = p2pgo_core::board::Board::new(self.board_size);
+            for y in 0..self.board_size {
+                for x in 0..self.board_size {
+                    let idx = (y as usize) * (self.board_size as usize) + (x as usize);
+                    if let Some(color) = current_state.board[idx] {
+                        board.place(p2pgo_core::Coord::new(x, y), color);
+                    }
+                }
+            }
+            
+            // For ko point, we need to detect it from game state
+            // This is a simplified version - real ko detection would need previous board state
+            let ko_point = None; // TODO: Implement proper ko detection
+            
             let features = create_feature_planes(
-                &current_state.board,
+                &board,
                 current_state.current_player,
-                current_state.ko_point,
+                ko_point,
             );
             
             // Create policy target from the move that was played
@@ -231,7 +246,7 @@ impl SgfToCborConverter {
             
             // Create context
             let context = ExampleContext {
-                is_ko_related: current_state.ko_point.is_some(),
+                is_ko_related: ko_point.is_some(),
                 is_opening,
                 is_endgame,
                 move_time: None, // Could extract from SGF if available

@@ -15,18 +15,12 @@ use tokio::sync::{broadcast, RwLock};
 use anyhow::Result;
 use serde::{Serialize, Deserialize};
 use p2pgo_core::{Move, GameState, GameEvent};
-use crate::GameId;
+use crate::{GameId, NodeContext};
 use crate::blob_store::MoveChain;
-
-// Import iroh-docs only when feature is enabled
-#[cfg(feature = "iroh")]
-use {
-    crate::iroh_endpoint::IrohCtx,
-    iroh::{endpoint::Connection, NodeId},
-    std::collections::VecDeque,
-    tokio::task::JoinHandle,
-    tokio::sync::Mutex,
-};
+use libp2p::PeerId;
+use std::collections::{HashMap, VecDeque};
+use tokio::task::JoinHandle;
+use tokio::sync::Mutex;
 
 // Module declarations
 pub mod core;
@@ -73,32 +67,25 @@ pub struct GameChannel {
     /// Directory to store game snapshots
     pub(crate) snapshot_dir: Arc<RwLock<Option<std::path::PathBuf>>>,
     
-    /// Iroh networking context when feature is enabled
-    #[cfg(feature = "iroh")]
-    pub(crate) iroh_ctx: Option<Arc<IrohCtx>>,
+    /// P2P networking context
+    pub(crate) node_ctx: Option<Arc<NodeContext>>,
     
-    /// Active connections to peers for this game
-    #[cfg(feature = "iroh")]
-    pub(crate) peer_connections: Arc<RwLock<Vec<Connection>>>,
+    /// Active peer connections for this game
+    pub(crate) peer_connections: Arc<RwLock<HashMap<PeerId, bool>>>,
     
-    /// Background task for handling incoming connections
-    #[cfg(feature = "iroh")]
-    pub(crate) _connection_task: Option<JoinHandle<()>>,
+    /// Background task for handling incoming messages
+    pub(crate) _message_handler_task: Option<JoinHandle<()>>,
     
-    /// Queue of already processed (NodeId, sequence) pairs to avoid duplicates
-    #[cfg(feature = "iroh")]
-    pub(crate) processed_sequences: Arc<Mutex<VecDeque<(NodeId, u64)>>>,
+    /// Queue of already processed (PeerId, sequence) pairs to avoid duplicates
+    pub(crate) processed_sequences: Arc<Mutex<VecDeque<(PeerId, u64)>>>,
     
     /// Index of the last move sent
-    #[cfg(feature = "iroh")]
     pub(crate) last_sent_index: Arc<RwLock<Option<usize>>>,
     
     /// Timestamp when the last move was sent
-    #[cfg(feature = "iroh")]
     pub(crate) last_sent_time: Arc<RwLock<Option<std::time::Instant>>>,
     
     /// Flag to track if sync has been requested for the current move
-    #[cfg(feature = "iroh")]
     pub(crate) sync_requested: Arc<RwLock<bool>>,
 }
 
@@ -234,7 +221,7 @@ mod tests {
         assert!(channel.get_latest_state().await.is_some());
         
         // Test move sending
-        let mv = Move::Place(Coord::new(4, 4));
+        let mv = Move::Place { x: 4, y: 4, color: p2pgo_core::Color::Black };
         channel.send_move(mv.clone()).await?;
         
         // Verify move was processed
@@ -265,7 +252,7 @@ mod tests {
         tokio::time::sleep(Duration::from_millis(100)).await;
         
         // Send a move from Alice but simulate dropped ACK
-        let mv = Move::Place(Coord::new(4, 4));
+        let mv = Move::Place { x: 4, y: 4, color: p2pgo_core::Color::Black };
         alice_channel.send_move(mv.clone()).await?;
         
         // Wait for the watchdog to trigger (>3 seconds)

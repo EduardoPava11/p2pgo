@@ -60,19 +60,27 @@ async fn main() -> Result<()> {
         let bootstrap_config = if let Some(connect_addr) = args.connect {
             tracing::info!("Connecting to relay: {}", connect_addr);
             BootstrapConfig {
-                relay_address: Some(connect_addr.parse()?),
+                bootstrap_peers: vec![connect_addr.parse()?],
                 enable_mdns: true,
-                enable_relay_discovery: true,
+                enable_relay: true,
+                timeout: std::time::Duration::from_secs(30),
             }
         } else {
             BootstrapConfig::default()
         };
         
-        let relay = RelayNode::new(args.port, bootstrap_config).await?;
+        // Generate keypair
+        let keypair = libp2p::identity::Keypair::generate_ed25519();
+        let peer_id = libp2p::PeerId::from(keypair.public());
+        
+        let mut relay = RelayNode::new(keypair)?;
         tracing::info!("Relay node started with peer_id: {}", relay.peer_id());
         
-        // Run the relay
-        relay.run().await?;
+        // Bootstrap if we have a config
+        relay.bootstrap().await?;
+        
+        // Handle events
+        relay.handle_events().await?;
     }
     
     Ok(())

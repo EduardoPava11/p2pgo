@@ -289,7 +289,7 @@ mod tests {
         
         // Test SyncResponse
         let state = GameState::new(9);
-        let moves = vec![Move::Place(Coord::new(4, 4))];
+        let moves = vec![Move::Place { x: 4, y: 4, color: p2pgo_core::Color::Black }];
         let sync_resp = GameChannelMessage::sync_response(game_id.clone(), moves, state);
         let json = sync_resp.to_json().unwrap();
         let deserialized = GameChannelMessage::from_json(&json).unwrap();

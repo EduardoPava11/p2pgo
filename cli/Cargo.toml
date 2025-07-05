@@ -33,3 +33,4 @@ chrono = { workspace = true }
 # Internal crates
 p2pgo-core = { path = "../core" }
 p2pgo-network = { path = "../network" }
+libp2p = { version = "0.53", features = ["kad", "gossipsub", "relay", "noise", "yamux", "tcp", "dns", "mdns", "macros", "tokio"] }

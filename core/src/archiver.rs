@@ -166,7 +166,7 @@ pub fn read_game_archive(path: &PathBuf) -> Result<GameState> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{GameState, Move, Coord};
+    use crate::{GameState, Move, Color};
     
     #[test]
     fn test_archive_compression() {
@@ -176,7 +176,11 @@ mod tests {
         // Add large vector data to make it large
         // Create a lot of moves to make the game state larger
         for i in 0..100 {
-            game.moves.push(Move::Place(Coord::new(i % 19, i / 19)));
+            game.moves.push(Move::Place { 
+                x: i % 19, 
+                y: i / 19, 
+                color: if i % 2 == 0 { Color::Black } else { Color::White } 
+            });
         }
         
         // Archive the game

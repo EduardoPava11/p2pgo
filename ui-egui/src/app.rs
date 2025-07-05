@@ -18,6 +18,8 @@ use crate::neural_placeholder::{NeuralTrainingUI, NeuralOverlay};
 use crate::error_logger::{ErrorLogger, ErrorLogViewer};
 use crate::connection_status::{ConnectionStatusWidget, ConnectionState};
 use crate::labeled_input::{show_labeled_input, show_labeled_identifier, IdentifierType};
+use crate::heat_map::HeatMapOverlay;
+use crate::dual_heat_map::DualHeatMap;
 // use crate::update_checker::{UpdateChecker, UpdateCheckResult, Version};
 // use crate::update_ui::{UpdateNotification, UpdateDialog, UpdateAction};
 
@@ -130,6 +132,10 @@ pub struct App {
     network_operation: Option<String>,
     /// Track if we've shown the ghost moves error message
     ghost_moves_error_shown: bool,
+    /// Heat map overlay for neural network visualization
+    heat_map: HeatMapOverlay,
+    /// Dual heat map for sword and shield networks
+    dual_heat_map: DualHeatMap,
 }
 
 impl App {
@@ -178,6 +184,8 @@ impl App {
             connection_status: ConnectionStatusWidget::new(),
             network_operation: None,
             ghost_moves_error_shown: false,
+            heat_map: HeatMapOverlay::new(),
+            dual_heat_map: DualHeatMap::new(),
         }
     }
 
@@ -222,6 +230,8 @@ impl App {
             connection_status: ConnectionStatusWidget::new(),
             network_operation: None,
             ghost_moves_error_shown: false,
+            heat_map: HeatMapOverlay::new(),
+            dual_heat_map: DualHeatMap::new(),
         }
     }
     
@@ -266,6 +276,8 @@ impl App {
             connection_status: ConnectionStatusWidget::new(),
             network_operation: None,
             ghost_moves_error_shown: false,
+            heat_map: HeatMapOverlay::new(),
+            dual_heat_map: DualHeatMap::new(),
         }
     }
 
@@ -618,6 +630,54 @@ impl App {
                     // Update network panel with test results
                     self.network_panel.update_test_results(results);
                 },
+                NetToUi::TrainingProgress { progress } => {
+                    // Update training progress in UI
+                    self.toast_manager.add_toast(
+                        format!("Training progress: {:.1}%", progress * 100.0),
+                        ToastType::Info,
+                    );
+                },
+                NetToUi::TrainingCompleted { stats } => {
+                    // Training completed successfully
+                    self.toast_manager.add_toast(
+                        format!("Training completed! Games trained: {}", stats.games_trained),
+                        ToastType::Success,
+                    );
+                },
+                NetToUi::TrainingError { message } => {
+                    // Training failed
+                    self.error_logger.log(
+                        crate::error_logger::ErrorLevel::Error,
+                        "Training",
+                        &message,
+                    );
+                    self.toast_manager.add_toast(
+                        format!("Training failed: {}", message),
+                        ToastType::Error,
+                    );
+                },
+                NetToUi::RelayModeChanged { mode } => {
+                    self.network_panel.update_relay_mode(mode);
+                    self.toast_manager.add_toast(
+                        format!("Relay mode changed to: {:?}", mode),
+                        ToastType::Info,
+                    );
+                },
+                NetToUi::TrainingConsentStatus { enabled } => {
+                    self.network_panel.update_training_consent(enabled);
+                },
+                NetToUi::RelayStatsUpdate { stats } => {
+                    // Update relay stats in network panel
+                    let credits = stats.calculate_credits();
+                    self.network_panel.update_relay_credits(credits);
+                },
+                NetToUi::TrainingCreditsEarned { credits } => {
+                    self.network_panel.update_relay_credits(credits);
+                    self.toast_manager.add_toast(
+                        format!("Earned {} training credits!", credits),
+                        ToastType::Success,
+                    );
+                },
             }
         }
     }
@@ -827,15 +887,24 @@ impl App {
                 }
             }
             
-            // Render neural overlay on the board
-            if self.neural_overlay.enabled {
-                if let (Some(board_rect), Some(cell_size)) = ui.ctx().data(|data| {
-                    (
-                        data.get_temp::<egui::Rect>(egui::Id::new("board_rect")),
-                        data.get_temp::<f32>(egui::Id::new("board_cell_size")),
-                    )
-                }) {
-                    self.neural_overlay.render_overlay(ui, board_rect, cell_size, game_state);
+            // Render heat map overlays on the board
+            if let (Some(board_rect), Some(cell_size)) = ui.ctx().data(|data| {
+                (
+                    data.get_temp::<egui::Rect>(egui::Id::new("board_rect")),
+                    data.get_temp::<f32>(egui::Id::new("board_cell_size")),
+                )
+            }) {
+                // Single heat map overlay
+                if self.heat_map.is_enabled() {
+                    self.heat_map.render_overlay(ui, board_rect, cell_size, game_state);
+                }
+                
+                // Dual heat map overlay (sword & shield)
+                if self.dual_heat_map.is_enabled() {
+                    // TODO: Get actual predictions from neural networks
+                    let sword_predictions = [[0.0; 19]; 19]; // Placeholder
+                    let shield_predictions = [[0.0; 19]; 19]; // Placeholder
+                    self.dual_heat_map.render_overlay(ui, board_rect, cell_size, game_state, &sword_predictions, &shield_predictions);
                 }
             }
             
@@ -1176,6 +1245,52 @@ impl eframe::App for App {
                 .show(ctx, |ui| {
                     self.error_log_viewer.render(ui, &self.error_logger);
                 });
+        }
+        
+        // Show heat map controls window if in game
+        if let View::Game { .. } = &self.current_view {
+            egui::Window::new("Heat Map Controls")
+                .default_pos(egui::Pos2::new(10.0, 100.0))
+                .default_width(250.0)
+                .show(ctx, |ui| {
+                    // Single heat map controls
+                    ui.heading("Single Network Heat Map");
+                    self.heat_map.render_controls(ui);
+                    
+                    ui.separator();
+                    
+                    // Dual heat map controls
+                    ui.heading("Dual Network Heat Map");
+                    self.dual_heat_map.render_controls(ui);
+                    
+                    ui.separator();
+                    
+                    // Keyboard shortcuts
+                    ui.label("Shortcuts:");
+                    ui.label("H - Toggle single heat map");
+                    ui.label("D - Toggle dual heat map");
+                    ui.label("S - Toggle sword network");
+                    ui.label("Shift+S - Toggle shield network");
+                });
+        }
+        
+        // Handle keyboard shortcuts for heat maps
+        if ctx.input(|i| i.key_pressed(egui::Key::H)) {
+            self.heat_map.toggle();
+        }
+        if ctx.input(|i| i.key_pressed(egui::Key::D)) {
+            if ctx.input(|i| i.modifiers.shift) {
+                self.dual_heat_map.toggle_shield();
+            } else {
+                self.dual_heat_map.toggle_sword();
+            }
+        }
+        if ctx.input(|i| i.key_pressed(egui::Key::S)) {
+            if ctx.input(|i| i.modifiers.shift) {
+                self.dual_heat_map.toggle_shield();
+            } else {
+                self.dual_heat_map.toggle_sword();
+            }
         }
         
         // Update neural overlay if in game

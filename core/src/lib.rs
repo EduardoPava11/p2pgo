@@ -24,6 +24,7 @@ pub mod archiver;
 pub mod color_constants;
 pub mod burn_engine;
 pub mod training_pipeline;
+// pub mod burn_trainer; // TODO: Fix Burn compilation issues
 pub mod ko_detector;
 pub mod ko_generator;
 pub mod logging;

@@ -1,0 +1,81 @@
+version: '3.8'
+
+services:
+  # Node 1 - Alice
+  node1:
+    build: ..
+    container_name: p2pgo-node1
+    environment:
+      - P2PGO_NODE_NAME=Alice
+      - P2PGO_PORT=4001
+      - P2PGO_RELAY_MODE=Normal
+    ports:
+      - "4001:4001"
+    volumes:
+      - node1-data:/data
+    networks:
+      - p2pgo-net
+
+  # Node 2 - Bob  
+  node2:
+    build: ..
+    container_name: p2pgo-node2
+    environment:
+      - P2PGO_NODE_NAME=Bob
+      - P2PGO_PORT=4002
+      - P2PGO_RELAY_MODE=Normal
+    ports:
+      - "4002:4002"
+    volumes:
+      - node2-data:/data
+    networks:
+      - p2pgo-net
+    depends_on:
+      - node1
+
+  # Node 3 - Charlie (behind NAT simulation)
+  node3:
+    build: ..
+    container_name: p2pgo-node3
+    environment:
+      - P2PGO_NODE_NAME=Charlie
+      - P2PGO_PORT=4003
+      - P2PGO_RELAY_MODE=Minimal
+    volumes:
+      - node3-data:/data
+    networks:
+      - p2pgo-nat
+    depends_on:
+      - node1
+      - node2
+
+  # Test runner
+  test-runner:
+    build: 
+      context: .
+      dockerfile: Dockerfile.test
+    container_name: p2pgo-test-runner
+    environment:
+      - NODE1_URL=http://node1:4001
+      - NODE2_URL=http://node2:4002
+      - NODE3_URL=http://node3:4003
+    networks:
+      - p2pgo-net
+      - p2pgo-nat
+    depends_on:
+      - node1
+      - node2
+      - node3
+    command: ["./run_docker_tests.sh"]
+
+networks:
+  p2pgo-net:
+    driver: bridge
+  p2pgo-nat:
+    driver: bridge
+    internal: true  # Simulates NAT
+
+volumes:
+  node1-data:
+  node2-data:
+  node3-data:

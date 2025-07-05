@@ -382,7 +382,7 @@ mod tests {
         let mut game_rx = channel.subscribe();
         
         // Post a move
-        let mv = Move::Place(Coord::new(4, 4));
+        let mv = Move::Place { x: 4, y: 4, color: Color::Black };
         lobby.post_move(&game_id, mv.clone()).await.unwrap();
         
         // Check that the move event was received

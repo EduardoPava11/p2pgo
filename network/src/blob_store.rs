@@ -7,13 +7,12 @@ use blake3;
 use p2pgo_core::{GameState, GameEvent, Move};
 use serde::{Serialize, Deserialize};
 use std::collections::HashMap;
-use crate::{BlobHash, DummyIroh, GameId};
+use crate::{BlobHash, GameId};
 
 /// Storage for game-related blobs
 pub struct BlobStore {
-    /// Mock Iroh implementation
-    #[allow(dead_code)]
-    iroh: DummyIroh,
+    /// In-memory storage for blobs
+    blobs: HashMap<BlobHash, Vec<u8>>,
 }
 
 impl Default for BlobStore {
@@ -28,7 +27,7 @@ impl BlobStore {
         let _span = tracing::info_span!("network.blob_store", "BlobStore::new").entered();
         
         Self {
-            iroh: DummyIroh::new(),
+            blobs: HashMap::new(),
         }
     }
     

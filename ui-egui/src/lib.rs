@@ -44,6 +44,10 @@ pub mod sound_manager;
 // pub mod update_checker;
 // pub mod update_ui;
 pub mod components;
+pub mod game_activity_logger;
+pub mod training;
+pub mod dual_heat_map;
+pub mod heat_map;
 
 // No re-exports for now
 

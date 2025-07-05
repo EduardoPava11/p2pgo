@@ -137,6 +137,9 @@ pub struct NetworkPanel {
     // Relay status display
     relay_health_status: Option<p2pgo_network::relay_monitor::RelayHealthStatus>,
     is_relay_node: bool,
+    relay_mode: p2pgo_network::relay_config::RelayMode,
+    training_consent: bool,
+    relay_credits: u64,
     
     // Advanced panel
     restart_network_requested: bool,
@@ -195,6 +198,9 @@ impl NetworkPanel {
             connection_graph: ConnectionGraph::new(),
             relay_health_status: None,
             is_relay_node: false,
+            relay_mode: p2pgo_network::relay_config::RelayMode::Normal { max_reservations: 25, max_circuits: 50 },
+            training_consent: false,
+            relay_credits: 0,
             restart_network_requested: false,
             relay_active_connections: None,
             relay_connection_limit: None,
@@ -850,13 +856,43 @@ impl NetworkPanel {
                 
                 // Relay config
                 ui.heading("Relay Configuration");
+                
+                // Relay mode selection
                 ui.horizontal(|ui| {
-                    ui.label("Mode:");
-                    if self.is_relay_node {
-                        ui.label("Self-Hosted Relay");
-                    } else {
-                        ui.label("Client (Using External Relay)");
+                    ui.label("Relay Mode:");
+                    let old_mode = self.relay_mode;
+                    egui::ComboBox::from_label("")
+                        .selected_text(format!("{:?}", self.relay_mode))
+                        .show_ui(ui, |ui| {
+                            ui.selectable_value(&mut self.relay_mode, 
+                                p2pgo_network::relay_config::RelayMode::Disabled, 
+                                "⛔ Disabled - Direct connections only");
+                            ui.selectable_value(&mut self.relay_mode, 
+                                p2pgo_network::relay_config::RelayMode::Minimal, 
+                                "🔒 Minimal - Privacy mode (no relay service)");
+                            ui.selectable_value(&mut self.relay_mode, 
+                                p2pgo_network::relay_config::RelayMode::Normal { max_reservations: 25, max_circuits: 50 }, 
+                                "🌐 Normal - Use and provide relay");
+                            ui.selectable_value(&mut self.relay_mode, 
+                                p2pgo_network::relay_config::RelayMode::Provider { max_reservations: 50, max_circuits: 100, require_credits: false }, 
+                                "⚡ Provider - Earn training credits");
+                        });
+                    
+                    if old_mode != self.relay_mode {
+                        action = Some(crate::msg::UiToNet::SetRelayMode { mode: self.relay_mode });
                     }
+                });
+                
+                // Mode description
+                ui.label(match &self.relay_mode {
+                    p2pgo_network::relay_config::RelayMode::Disabled => 
+                        "Direct connections only. May not work behind NAT.",
+                    p2pgo_network::relay_config::RelayMode::Minimal => 
+                        "Maximum privacy. Only uses relay when necessary.",
+                    p2pgo_network::relay_config::RelayMode::Normal { .. } => 
+                        "Balanced mode. Helps the network while playing.",
+                    p2pgo_network::relay_config::RelayMode::Provider { .. } => 
+                        "Actively relay for others. Earn credits for training data.",
                 });
                 
                 if let Some(port) = self.relay_port {
@@ -864,6 +900,29 @@ impl NetworkPanel {
                         ui.label("Relay Port:");
                         ui.monospace(port.to_string());
                     });
+                }
+                
+                // Training data consent (only for Provider mode)
+                if matches!(self.relay_mode, p2pgo_network::relay_config::RelayMode::Provider { .. }) {
+                    ui.separator();
+                    ui.heading("Training Data Exchange");
+                    
+                    let old_consent = self.training_consent;
+                    ui.checkbox(&mut self.training_consent, "Share anonymized game data for neural network training");
+                    
+                    if old_consent != self.training_consent {
+                        action = Some(crate::msg::UiToNet::SetTrainingConsent { consent: self.training_consent });
+                    }
+                    
+                    if self.training_consent {
+                        ui.label("✅ You will earn credits for relaying that can be used for training compute");
+                        ui.horizontal(|ui| {
+                            ui.label("Credits earned:");
+                            ui.strong(self.relay_credits.to_string());
+                        });
+                    } else {
+                        ui.label("⚠️ Relay service will work but you won't earn training credits");
+                    }
                 }
                 
                 // Bootstrap relays
@@ -1084,6 +1143,27 @@ impl NetworkPanel {
         }
     }
     
+    /// Update relay mode
+    pub fn update_relay_mode(&mut self, mode: p2pgo_network::relay_config::RelayMode) {
+        self.relay_mode = mode;
+    }
+    
+    /// Update training consent
+    pub fn update_training_consent(&mut self, consent: bool) {
+        self.training_consent = consent;
+    }
+    
+    /// Update relay credits
+    pub fn update_relay_credits(&mut self, credits: u64) {
+        self.relay_credits = credits;
+    }
+    
+    /// Update connection test results
+    pub fn update_test_results(&mut self, results: Vec<String>) {
+        self.test_results = results;
+        self.last_connection_test = Some(Instant::now());
+    }
+    
     /// Draw network status with tooltip
     pub fn draw_network_status_with_tooltip(&self, ui: &mut egui::Ui) {
         let response = ui.horizontal(|ui| {
@@ -1123,12 +1203,6 @@ impl NetworkPanel {
         self.game_connections.remove(game_id);
     }
     
-    /// Update connection test results
-    pub fn update_test_results(&mut self, results: Vec<String>) {
-        self.test_results = results;
-        self.connection_test_in_progress = false;
-        self.last_connection_test = Some(Instant::now());
-    }
     
     /// Get detailed tooltip for network status
     fn get_network_tooltip(&self) -> String {

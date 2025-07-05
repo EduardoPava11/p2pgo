@@ -157,19 +157,11 @@ impl TrainingPipeline {
     fn train_policy(&self, role: PolicyRole, examples: &[DataPoint]) -> Result<PolicyTrainingResults> {
         info!("Training {:?} policy with {} examples", role, examples.len());
         
-        // For now, this is a mock implementation
-        // In a real implementation, this would:
-        // 1. Convert examples to Burn tensors
-        // 2. Create a neural network model
-        // 3. Define loss function and optimizer
-        // 4. Run training loop for specified epochs
-        // 5. Save trained model to WASM format
-        
-        let mut accuracy: f32 = 0.1; // Starting accuracy
+        // For now, use mock implementation until Burn compilation is fixed
+        let mut accuracy: f32 = 0.1;
         
         for epoch in 0..self.config.epochs {
-            // Mock training step
-            accuracy += 0.05; // Simulate learning
+            accuracy += 0.05;
             
             if epoch % 5 == 0 {
                 info!("Epoch {}/{}: {:?} accuracy = {:.3}", 
@@ -177,10 +169,11 @@ impl TrainingPipeline {
             }
         }
         
-        info!("Completed training for {:?} policy. Final accuracy: {:.3}", role, accuracy);
+        let final_accuracy = accuracy.min(0.95);
+        info!("Completed training for {:?} policy. Final accuracy: {:.3}", role, final_accuracy);
         
         Ok(PolicyTrainingResults {
-            final_accuracy: accuracy.min(0.95), // Cap at 95%
+            final_accuracy,
             epochs_completed: self.config.epochs,
             total_examples: examples.len(),
         })

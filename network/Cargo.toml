@@ -20,6 +20,7 @@ libp2p = { version = "0.53", features = [
 
 # Async runtime
 tokio = { version = "1.35", features = ["full"] }
+async-trait = "0.1"
 
 # Serialization
 serde = { version = "1.0", features = ["derive"] }
@@ -57,6 +58,7 @@ bytes = "1"
 rand = "0.8"
 futures = "0.3"
 futures-util = "0.3"
+void = "1"
 
 # NAT traversal helpers
 igd = "0.12"
@@ -68,11 +70,7 @@ directories = "5"
 # Core P2P Go types
 p2pgo-core = { path = "../core" }
 
-# Optional iroh dependencies
-iroh = { workspace = true, optional = true }
-iroh-docs = { workspace = true, optional = true }
-iroh-gossip = { workspace = true, optional = true }
-iroh-blobs = { workspace = true, optional = true }
+# Iroh dependencies removed - using libp2p instead
 
 # For auto-update
 reqwest = { version = "0.11", features = ["json"] }
@@ -87,11 +85,11 @@ humantime-serde = "1.1.1"
 socket2 = "0.5.5"
 
 [features]
-default = ["stub"]
+default = ["libp2p"]
 # Enable debug functions for headless testing
 headless = []
-# Enable iroh networking (not fully implemented yet)
-iroh = ["dep:iroh", "dep:iroh-docs", "dep:iroh-gossip", "dep:iroh-blobs"]
+# Enable libp2p networking (default)
+libp2p = []
 # Enable stub networking for local testing
 stub = []
 

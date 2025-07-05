@@ -82,7 +82,7 @@ async fn main() -> Result<()> {
                 ) {
                     info!("Uploading SGF: {} (moves {}-{})", sgf_path.display(), start, end);
                     
-                    let rna = relay.create_sgf_rna(content, (start, end));
+                    let rna = relay.create_sgf_rna(content, (start as usize, end as usize));
                     relay.broadcast_rna(rna).await?;
                     
                     info!("SGF data broadcast as RNA");

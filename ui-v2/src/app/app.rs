@@ -224,12 +224,21 @@ impl P2PGoApp {
             TrainingAction::StartTraining => {
                 self.training_view.training_active = true;
                 self.training_view.training_progress = 0.0;
-                // TODO: Actually train the neural network
+                self.training_view.error_message = None;
+                
+                // Send message to start training
+                let sgf_paths = self.training_view.selected_files.clone();
+                if let Err(e) = self.net_tx.send(UiToNet::StartTraining { sgf_paths }) {
+                    self.training_view.error_message = Some(format!("Failed to start training: {}", e));
+                    self.training_view.training_active = false;
+                }
             }
             
             TrainingAction::CancelTraining => {
                 self.training_view.training_active = false;
                 self.training_view.training_progress = 0.0;
+                // Send cancel message
+                let _ = self.net_tx.send(UiToNet::CancelTraining);
             }
             
             TrainingAction::None => {}
@@ -303,6 +312,23 @@ impl P2PGoApp {
                         });
                         game_view.is_our_turn = true;
                     }
+                }
+                
+                NetToUi::TrainingProgress { progress } => {
+                    self.training_view.training_progress = progress;
+                }
+                
+                NetToUi::TrainingCompleted { stats } => {
+                    self.training_view.training_active = false;
+                    self.training_view.training_progress = 1.0;
+                    self.training_view.last_stats = Some(stats);
+                    self.training_view.error_message = None;
+                }
+                
+                NetToUi::TrainingError { message } => {
+                    self.training_view.training_active = false;
+                    self.training_view.training_progress = 0.0;
+                    self.training_view.error_message = Some(message);
                 }
                 
                 _ => {} // Handle other messages as needed

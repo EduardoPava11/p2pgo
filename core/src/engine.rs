@@ -129,7 +129,7 @@ mod tests {
     fn test_create_move_record() {
         // Test creating a regular move
         let record = create_move_record(3, 4, 1, None);
-        assert_eq!(record.mv, Move::Place(Coord::new(3, 4)));
+        assert_eq!(record.mv, Move::Place { x: 3, y: 4, color: crate::Color::White });
         assert!(record.broadcast_hash.is_some());
         
         // Test pass move

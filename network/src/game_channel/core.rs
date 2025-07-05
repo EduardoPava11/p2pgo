@@ -5,18 +5,12 @@
 use std::sync::Arc;
 use tokio::sync::{broadcast, RwLock};
 use p2pgo_core::GameState;
-use crate::GameId;
+use crate::{GameId, NodeContext};
 use crate::blob_store::MoveChain;
 use super::GameChannel;
-
-#[cfg(feature = "iroh")]
-use {
-    crate::iroh_endpoint::IrohCtx,
-    iroh::NodeId,
-    std::collections::VecDeque,
-    tokio::sync::Mutex,
-    super::{networking, sync},
-};
+use libp2p::PeerId;
+use std::collections::{HashMap, VecDeque};
+use tokio::sync::Mutex;
 
 /// Create a new game channel
 pub fn new(game_id: GameId, initial_state: GameState) -> GameChannel {
@@ -28,8 +22,7 @@ pub fn new(game_id: GameId, initial_state: GameState) -> GameChannel {
     // Create move chain
     let move_chain = MoveChain::new(game_id.clone());
     
-    #[cfg(not(feature = "iroh"))]
-    return GameChannel {
+    GameChannel {
         game_id,
         move_chain: Arc::new(RwLock::new(move_chain)),
         events_tx,
@@ -37,38 +30,28 @@ pub fn new(game_id: GameId, initial_state: GameState) -> GameChannel {
         last_snapshot_time: Arc::new(RwLock::new(std::time::Instant::now())),
         moves_since_snapshot: Arc::new(RwLock::new(0)),
         snapshot_dir: Arc::new(RwLock::new(None)),
-    };
-    
-    #[cfg(feature = "iroh")]
-    return GameChannel {
-        game_id,
-        move_chain: Arc::new(RwLock::new(move_chain)),
-        events_tx,
-        latest_state: Arc::new(RwLock::new(Some(initial_state))),
-        last_snapshot_time: Arc::new(RwLock::new(std::time::Instant::now())),
-        moves_since_snapshot: Arc::new(RwLock::new(0)),
-        snapshot_dir: Arc::new(RwLock::new(None)),
-        iroh_ctx: None,
-        peer_connections: Arc::new(RwLock::new(Vec::new())),
-        _connection_task: None,
-        processed_sequences: Arc::new(Mutex::new(VecDeque::with_capacity(8192))),
+        node_ctx: None,
+        peer_connections: Arc::new(RwLock::new(HashMap::new())),
+        _message_handler_task: None,
+        processed_sequences: Arc::new(Mutex::new(VecDeque::new())),
         last_sent_index: Arc::new(RwLock::new(None)),
         last_sent_time: Arc::new(RwLock::new(None)),
         sync_requested: Arc::new(RwLock::new(false)),
-    };
+    }
 }
 
-/// Create a new game channel with an Iroh context for network synchronization
-#[cfg(feature = "iroh")]
-#[tracing::instrument(level = "debug", skip(iroh_ctx))]
-pub async fn with_iroh(game_id: GameId, initial_state: GameState, iroh_ctx: Arc<IrohCtx>) -> Result<GameChannel> {
-    tracing::info!("Creating GameChannel with Iroh for game {}", game_id);
+/// Create a new game channel with P2P context for network synchronization
+use anyhow::Result;
+
+#[tracing::instrument(level = "debug", skip(node_ctx))]
+pub async fn with_p2p(game_id: GameId, initial_state: GameState, node_ctx: Arc<NodeContext>) -> Result<GameChannel> {
+    tracing::info!("Creating GameChannel with P2P for game {}", game_id);
     
     // Create the basic channel
     let mut channel = new(game_id.clone(), initial_state.clone());
     
-    // Set the iroh context
-    channel.iroh_ctx = Some(iroh_ctx.clone());
+    // Set the P2P context
+    channel.node_ctx = Some(node_ctx.clone());
     
     // Start connection handler that will handle both incoming and outgoing connections
     let peer_connections = channel.peer_connections.clone();
@@ -81,76 +64,24 @@ pub async fn with_iroh(game_id: GameId, initial_state: GameState, iroh_ctx: Arc<
     let connection_task = tokio::spawn(async move {
         tracing::info!("Starting connection handler for game: {}", game_id_for_task);
         
-        // Accept incoming connections and handle them
-        while let Some(connection) = iroh_ctx.accept_connection().await {
-            tracing::info!("New connection for game: {}", game_id_for_task);
-            
-            // Add connection to our list
-            {
-                let mut connections = peer_connections.write().await;
-                connections.push(connection.clone());
-                tracing::info!("Total connections for game {}: {}", game_id_for_task, connections.len());
-            }
-            
-            // Spawn a task to handle this specific connection
-            let events_tx_conn = events_tx.clone();
-            let processed_sequences_conn = processed_sequences.clone();
-            let move_chain_conn = move_chain.clone();
-            let latest_state_conn = latest_state.clone();
-            let game_id_conn = game_id_for_task.clone();
-            
-            tokio::spawn(async move {
-                if let Err(e) = networking::handle_peer_connection(
-                    connection,
-                    game_id_conn,
-                    events_tx_conn,
-                    processed_sequences_conn,
-                    move_chain_conn,
-                    latest_state_conn,
-                ).await {
-                    tracing::error!("Error handling peer connection: {}", e);
-                }
-            });
-        }
+        // TODO: Implement libp2p message handling
+        // This will receive messages from the libp2p swarm and process them
+        tracing::info!("P2P message handler started for game: {}", game_id_for_task);
         
-        tracing::warn!("Connection handler for game {} exited", game_id_for_task);
-        Ok(())
-    });
-    
-    channel._connection_task = Some(connection_task);
-    
-    // Subscribe to gossip topic for this game (best effort)
-    if let Err(e) = networking::subscribe_to_game_topic(&mut channel).await {
-        tracing::warn!("Failed to subscribe to gossip topic (will rely on direct connections): {}", e);
-    }
-    
-    tracing::info!("Successfully created game channel with Iroh for game: {}", game_id);
-    
-    // Convert the channel to Arc and register it
-    let channel_arc = std::sync::Arc::new(channel);
-    super::registry::register(&game_id, &channel_arc);
-    
-    // Schedule regular checks for ACK timeouts
-    let channel_weak = std::sync::Arc::downgrade(&channel_arc);
-    let game_id_clone = game_id.clone();
-    
-    tokio::spawn(async move {
-        let mut interval = tokio::time::interval(std::time::Duration::from_millis(500));
-        
+        // For now, just keep the task alive
         loop {
-            interval.tick().await;
-            
-            if let Some(channel) = channel_weak.upgrade() {
-                if let Err(e) = sync::check_sync_timeouts(&channel).await {
-                    tracing::error!("Error checking sync timeouts for {}: {}", game_id_clone, e);
-                }
-            } else {
-                // Channel has been dropped, exit the loop
-                tracing::debug!("ACK watchdog stopped for {}", game_id_clone);
-                break;
-            }
+            tokio::time::sleep(tokio::time::Duration::from_secs(60)).await;
         }
     });
     
-    Ok((*channel_arc).clone())
+    channel._message_handler_task = Some(connection_task);
+    
+    // TODO: Subscribe to libp2p gossipsub topic for this game
+    // if let Err(e) = networking::subscribe_to_game_topic(&mut channel).await {
+    //     tracing::warn!("Failed to subscribe to gossip topic: {}", e);
+    // }
+    
+    tracing::info!("Successfully created game channel with P2P for game: {}", game_id);
+    
+    Ok(channel)
 }

@@ -8,9 +8,9 @@ fn test_move_sequence_order() {
     let mut state1 = GameState::new(9);
     
     // Apply moves in sequence 1
-    let _ = state1.apply_move(Move::Place(Coord::new(2, 3)));
-    let _ = state1.apply_move(Move::Place(Coord::new(3, 3)));
-    let _ = state1.apply_move(Move::Place(Coord::new(2, 4)));
+    let _ = state1.apply_move(Move::Place { x: 2, y: 3, color: p2pgo_core::Color::Black });
+    let _ = state1.apply_move(Move::Place { x: 3, y: 3, color: p2pgo_core::Color::White });
+    let _ = state1.apply_move(Move::Place { x: 2, y: 4, color: p2pgo_core::Color::Black });
     
     // Get the board hash after sequence 1
     let hash1 = state1.board.position_hash();
@@ -19,9 +19,9 @@ fn test_move_sequence_order() {
     let mut state2 = GameState::new(9);
     
     // Apply the same moves in a different order
-    let _ = state2.apply_move(Move::Place(Coord::new(2, 3)));
-    let _ = state2.apply_move(Move::Place(Coord::new(2, 4)));
-    let _ = state2.apply_move(Move::Place(Coord::new(3, 3)));
+    let _ = state2.apply_move(Move::Place { x: 2, y: 3, color: p2pgo_core::Color::Black });
+    let _ = state2.apply_move(Move::Place { x: 2, y: 4, color: p2pgo_core::Color::White });
+    let _ = state2.apply_move(Move::Place { x: 3, y: 3, color: p2pgo_core::Color::Black });
     
     // Get the board hash after sequence 2
     let hash2 = state2.board.position_hash();
@@ -31,12 +31,12 @@ fn test_move_sequence_order() {
     
     // Create sequences that should produce identical positions
     let mut state3 = GameState::new(9);
-    state3.apply_move(Move::Place(Coord::new(1, 1))).unwrap();
-    state3.apply_move(Move::Place(Coord::new(7, 7))).unwrap();
+    state3.apply_move(Move::Place { x: 1, y: 1, color: p2pgo_core::Color::Black }).unwrap();
+    state3.apply_move(Move::Place { x: 7, y: 7, color: p2pgo_core::Color::White }).unwrap();
     
     let mut state4 = GameState::new(9);
-    state4.apply_move(Move::Place(Coord::new(1, 1))).unwrap();
-    state4.apply_move(Move::Place(Coord::new(7, 7))).unwrap();
+    state4.apply_move(Move::Place { x: 1, y: 1, color: p2pgo_core::Color::Black }).unwrap();
+    state4.apply_move(Move::Place { x: 7, y: 7, color: p2pgo_core::Color::White }).unwrap();
     
     // These should be the same since the moves are identical
     let hash3 = state3.board.position_hash();

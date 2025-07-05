@@ -4,6 +4,7 @@ pub mod core;
 pub mod widgets;
 pub mod features;
 pub mod app;
+pub mod training;
 
 // Re-export main app
 pub use app::P2PGoApp;

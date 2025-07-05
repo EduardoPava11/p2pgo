@@ -53,6 +53,22 @@ pub enum UiToNet {
     RestartNetwork,
     /// Run network connection test
     RunConnectionTest,
+    /// Start neural network training with SGF files
+    StartTraining { 
+        sgf_paths: Vec<std::path::PathBuf> 
+    },
+    /// Cancel ongoing training
+    CancelTraining,
+    /// Set relay mode
+    SetRelayMode { 
+        mode: p2pgo_network::relay_config::RelayMode 
+    },
+    /// Set training data consent
+    SetTrainingConsent { 
+        consent: bool 
+    },
+    /// Request relay statistics
+    RequestRelayStats,
 }
 
 /// Messages sent from Network worker to UI
@@ -143,6 +159,34 @@ pub enum NetToUi {
     ConnectionTestResults {
         /// Test result messages
         results: Vec<String>,
+    },
+    /// Training progress update
+    TrainingProgress { 
+        progress: f32 
+    },
+    /// Training completed successfully
+    TrainingCompleted { 
+        stats: p2pgo_neural::training::TrainingStats 
+    },
+    /// Training error occurred
+    TrainingError { 
+        message: String 
+    },
+    /// Relay mode changed
+    RelayModeChanged { 
+        mode: p2pgo_network::relay_config::RelayMode 
+    },
+    /// Training consent status
+    TrainingConsentStatus { 
+        enabled: bool 
+    },
+    /// Relay statistics update
+    RelayStatsUpdate { 
+        stats: p2pgo_network::relay_config::RelayStats 
+    },
+    /// Training credits earned for relay service
+    TrainingCreditsEarned { 
+        credits: u64 
     },
 }
 

@@ -160,7 +160,7 @@ mod tests {
     #[test]
     fn test_move_hash_calculation() {
         let mut move_record = MoveRecord::new(
-            Move::Place(Coord::new(4, 4)),
+            Move::Place { x: 4, y: 4, color: p2pgo_core::Color::Black },
             None,
             1000, // timestamp
             None, // prev_hash
@@ -173,7 +173,7 @@ mod tests {
         assert_eq!(hash1, hash2);
         
         // Different move should produce different hash
-        move_record.mv = Move::Place(Coord::new(5, 5));
+        move_record.mv = Move::Place { x: 5, y: 5, color: p2pgo_core::Color::White };
         let hash3 = calculate_move_hash(&move_record);
         assert_ne!(hash1, hash3);
     }
@@ -183,11 +183,11 @@ mod tests {
         let mut records = Vec::new();
         
         // Create first move (no previous hash)
-        let move1 = MoveRecord::new(Move::Place(Coord::new(4, 4)), None, 1000, None);
+        let move1 = MoveRecord::new(Move::Place { x: 4, y: 4, color: p2pgo_core::Color::Black }, None, 1000, None);
         records.push(move1);
         
         // Create second move with correct previous hash
-        let mut move2 = MoveRecord::new(Move::Place(Coord::new(5, 5)), None, 2000, None);
+        let mut move2 = MoveRecord::new(Move::Place { x: 5, y: 5, color: p2pgo_core::Color::White }, None, 2000, None);
         move2.prev_hash = Some(calculate_move_hash(&records[0]));
         records.push(move2);
         
@@ -207,7 +207,7 @@ mod tests {
         assert!(verify_game_state_proof(&game_state, &proof1));
         
         // Add a move and verify proof changes
-        game_state.moves.push(Move::Place(Coord::new(4, 4)));
+        game_state.moves.push(Move::Place { x: 4, y: 4, color: p2pgo_core::Color::Black });
         let proof2 = create_game_state_proof(&game_state);
         assert_ne!(proof1, proof2);
         assert!(verify_game_state_proof(&game_state, &proof2));

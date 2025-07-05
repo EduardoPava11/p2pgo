@@ -219,7 +219,7 @@ mod tests {
         
         // Create a test game state
         let mut game_state = GameState::new(9);
-        game_state.moves.push(p2pgo_core::Move::Place(p2pgo_core::Coord::new(4, 4)));
+        game_state.moves.push(p2pgo_core::Move::Place { x: 4, y: 4, color: p2pgo_core::Color::Black });
         
         // Create a test game channel
         let game_id = "test-snapshot-game";

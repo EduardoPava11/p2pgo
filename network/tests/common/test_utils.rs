@@ -25,8 +25,8 @@ pub fn random_move(state: &GameState) -> Move {
         let coord = Coord::new(x as u8, y as u8);
         
         // In a real implementation, we would check if the move is valid
-        // For tests, we'll just use the random coordinate
-        return Move::Place(coord);
+        // For tests, we'll just use the random coordinate with current player's color
+        return Move::Place { x: coord.x, y: coord.y, color: state.current_player };
     }
     
     // If we can't find a random valid move, return pass

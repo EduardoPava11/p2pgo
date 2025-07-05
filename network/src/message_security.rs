@@ -184,6 +184,7 @@ mod tests {
     use super::*;
     use ed25519_dalek::SigningKey;
     use rand::rngs::OsRng;
+    use rand::RngCore;
     
     #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
     struct TestMessage {
@@ -194,7 +195,9 @@ mod tests {
     #[test]
     fn test_sign_and_verify() {
         let mut csprng = OsRng;
-        let signing_key = SigningKey::generate(&mut csprng);
+        let mut key_bytes = [0u8; 32];
+        csprng.fill_bytes(&mut key_bytes);
+        let signing_key = SigningKey::from_bytes(&key_bytes);
         let verifying_key = signing_key.verifying_key();
         let peer_id = PeerId::random();
         
@@ -209,14 +212,19 @@ mod tests {
         let signed = security.sign_message(&msg).unwrap();
         
         // Verify message
-        let mut verifier = MessageSecurity::new(SigningKey::generate(&mut csprng), PeerId::random());
+        let mut verifier_key_bytes = [0u8; 32];
+        csprng.fill_bytes(&mut verifier_key_bytes);
+        let verifier_key = SigningKey::from_bytes(&verifier_key_bytes);
+        let mut verifier = MessageSecurity::new(verifier_key, PeerId::random());
         verifier.verify_message(&signed, &verifying_key).unwrap();
     }
     
     #[test]
     fn test_replay_protection() {
         let mut csprng = OsRng;
-        let signing_key = SigningKey::generate(&mut csprng);
+        let mut key_bytes = [0u8; 32];
+        csprng.fill_bytes(&mut key_bytes);
+        let signing_key = SigningKey::from_bytes(&key_bytes);
         let verifying_key = signing_key.verifying_key();
         let peer_id = PeerId::random();
         
@@ -229,7 +237,10 @@ mod tests {
         
         let signed = security.sign_message(&msg).unwrap();
         
-        let mut verifier = MessageSecurity::new(SigningKey::generate(&mut csprng), PeerId::random());
+        let mut verifier_key_bytes = [0u8; 32];
+        csprng.fill_bytes(&mut verifier_key_bytes);
+        let verifier_key = SigningKey::from_bytes(&verifier_key_bytes);
+        let mut verifier = MessageSecurity::new(verifier_key, PeerId::random());
         
         // First verification should succeed
         verifier.verify_message(&signed, &verifying_key).unwrap();
@@ -241,7 +252,9 @@ mod tests {
     #[test]
     fn test_tamper_detection() {
         let mut csprng = OsRng;
-        let signing_key = SigningKey::generate(&mut csprng);
+        let mut key_bytes = [0u8; 32];
+        csprng.fill_bytes(&mut key_bytes);
+        let signing_key = SigningKey::from_bytes(&key_bytes);
         let verifying_key = signing_key.verifying_key();
         let peer_id = PeerId::random();
         
@@ -257,7 +270,10 @@ mod tests {
         // Tamper with message
         signed.payload.value = 200;
         
-        let mut verifier = MessageSecurity::new(SigningKey::generate(&mut csprng), PeerId::random());
+        let mut verifier_key_bytes = [0u8; 32];
+        csprng.fill_bytes(&mut verifier_key_bytes);
+        let verifier_key = SigningKey::from_bytes(&verifier_key_bytes);
+        let mut verifier = MessageSecurity::new(verifier_key, PeerId::random());
         
         // Verification should fail
         assert!(verifier.verify_message(&signed, &verifying_key).is_err());

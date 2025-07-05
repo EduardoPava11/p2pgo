@@ -7,7 +7,8 @@
 use anyhow::{Result, anyhow};
 use std::sync::{atomic::{AtomicU32, Ordering}, Arc};
 use std::collections::HashMap;
-use std::time::{Duration, SystemTime};
+use std::time::Duration;
+use chrono;
 use tokio::task::JoinHandle;
 
 // Global restart counters for each task type - used for telemetry and restart policy
@@ -449,12 +450,12 @@ pub fn save_port_pair(port1: u16, port2: u16) -> Result<()> {
         return Err(anyhow::anyhow!("Port pair contains identical ports"));
     }
     
-    let now = SystemTime::now();
+    let now = chrono::Utc::now();
     let contents = format!(
         "port1 = {}\nport2 = {}\nlast_used = \"{}\"", 
         port1, 
         port2, 
-        humantime::format_rfc3339(now)
+        now.to_rfc3339()
     );
     
     // Write the file atomically
