@@ -52,6 +52,10 @@ mkdir -p "$APP_BUNDLE/Contents/Resources"
 cp "target/release/p2pgo-ui-egui" "$APP_BUNDLE/Contents/MacOS/P2PGo"
 chmod +x "$APP_BUNDLE/Contents/MacOS/P2PGo"
 
+# Remove quarantine attributes from the app bundle
+echo "=� Removing quarantine attributes from app..."
+xattr -cr "$APP_BUNDLE" 2>/dev/null || true
+
 # Create Info.plist
 cat > "$APP_BUNDLE/Contents/Info.plist" << EOF
 <?xml version="1.0" encoding="UTF-8"?>
@@ -119,23 +123,47 @@ ln -s /Applications "$MOUNT_DIR/Applications"
 # Create background and positioning (optional)
 mkdir -p "$MOUNT_DIR/.background"
 
-# Create a simple README
+# Create a comprehensive README with security instructions
 cat > "$MOUNT_DIR/README.txt" << EOF
 P2P Go - Decentralized Go Game
 Version ${VERSION}
 
-Installation:
+INSTALLATION INSTRUCTIONS:
 1. Drag "P2P Go.app" to your Applications folder
 2. Launch from Applications or Launchpad
-3. Allow in Security & Privacy if prompted
 
-Features:
-- Peer-to-peer gameplay
-- Neural network heat maps
-- Multiple relay modes for privacy
-- Training data export
+IMPORTANT SECURITY NOTE:
+If you see "P2P Go is damaged and can't be opened":
+1. Right-click on P2P Go.app in Applications
+2. Select "Open" from the context menu
+3. Click "Open" when prompted with the security warning
+4. The app will then run normally in future launches
 
-For more info: https://p2pgo.com
+Alternative method:
+1. Open System Preferences > Security & Privacy
+2. Click "Open Anyway" if the app appears there
+3. Or run in Terminal: xattr -cr "/Applications/P2P Go.app"
+
+This warning appears because the app is not signed with an Apple Developer certificate. The app is safe - you can verify the source code at: https://github.com/EduardoPava11/p2pgo
+
+FEATURES:
+- Peer-to-peer gameplay (no servers required)
+- Neural network heat maps for move prediction
+- Multiple relay modes for privacy control
+- Training data export in CBOR format
+- 9x9 and 19x19 board support
+
+GETTING STARTED:
+1. Enter your player name
+2. Create a game and share the code with a friend
+3. Or join a game using a friend's code
+4. Enjoy decentralized Go!
+
+For more info: https://eduardopava11.github.io/p2pgo/
+Source code: https://github.com/EduardoPava11/p2pgo
+
+System Requirements: macOS 10.15 (Catalina) or later
+Architecture: ARM64 (Apple Silicon optimized)
 EOF
 
 # Unmount
@@ -147,6 +175,10 @@ hdiutil convert "$DMG_TEMP" -format UDZO -o "$DMG_FINAL"
 
 # Clean up
 rm "$DMG_TEMP"
+
+# Remove quarantine attributes that cause "damaged" errors
+echo "=� Removing quarantine attributes..."
+xattr -cr "$DMG_FINAL" 2>/dev/null || true
 
 # Sign the DMG (optional, requires Apple Developer ID)
 if command -v codesign &> /dev/null; then
