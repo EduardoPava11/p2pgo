@@ -407,19 +407,48 @@ impl App {
                             #[cfg(feature = "headless")]
                             println!("Move made event received: {:?}", mv);
 
-                            if let View::Game { game_state, .. } = &mut self.current_view {
-                                // Animate the move
-                                match mv {
-                                    p2pgo_core::Move::Place { x, y, color } => {
-                                        let coord = Coord { x: *x, y: *y };
-                                        self.board_widget.animate_stone_placement(coord, *color);
+                            // Handle move events for both Game and Lobby views
+                            match &mut self.current_view {
+                                View::Game { game_state, .. } => {
+                                    // Animate the move
+                                    match mv {
+                                        p2pgo_core::Move::Place { x, y, color } => {
+                                            let coord = Coord { x: *x, y: *y };
+                                            self.board_widget.animate_stone_placement(coord, *color);
+                                        }
+                                        _ => {} // Pass and Resign don't need animation
                                     }
-                                    _ => {} // Pass and Resign don't need animation
-                                }
 
-                                let _ = game_state.apply_move(mv.clone());
-                                // Update last blob hash for debug overlay - use move type description
-                                self.last_blob_hash = Some(format!("{:?}", mv));
+                                    let _ = game_state.apply_move(mv.clone());
+                                    // Update last blob hash for debug overlay - use move type description
+                                    self.last_blob_hash = Some(format!("{:?}", mv));
+                                }
+                                View::Lobby { game_id } => {
+                                    // Someone made a move! Transition from lobby to game
+                                    let board_size = self.board_widget.get_board_size();
+                                    let mut game_state = p2pgo_core::GameState::new(board_size);
+                                    let _ = game_state.apply_move(mv.clone());
+                                    
+                                    self.current_view = View::Game {
+                                        game_id: game_id.clone(),
+                                        game_state,
+                                        our_color: None, // Will be determined
+                                    };
+                                    
+                                    // Animate the move
+                                    match mv {
+                                        p2pgo_core::Move::Place { x, y, color } => {
+                                            let coord = Coord { x: *x, y: *y };
+                                            self.board_widget.animate_stone_placement(coord, *color);
+                                        }
+                                        _ => {}
+                                    }
+                                    
+                                    self.toast_manager.add_toast("Opponent connected! Game started.", crate::toast_manager::ToastType::Success);
+                                }
+                                _ => {
+                                    // Ignore move events if not in game or lobby
+                                }
                             }
                         }
                         p2pgo_core::GameEvent::GameFinished {
@@ -452,12 +481,20 @@ impl App {
                     self.network_panel
                         .update_game_connection(game_id.clone(), 1, true);
 
-                    // Transition directly to game view so creator sees the board
-                    self.current_view = View::Game {
-                        game_id,
-                        game_state,
-                        our_color: None, // Will be determined by first move
-                    };
+                    // Check if this is a game we created (we're the host) or joining an existing game
+                    // If we have no moves yet, we're probably the creator, so go to lobby
+                    // If the game has moves, we're joining an existing game, so go to game view
+                    if game_state.moves.is_empty() {
+                        // This is a new game we created - go to lobby to wait for opponent
+                        self.current_view = View::Lobby { game_id };
+                    } else {
+                        // This is an existing game we're joining - go directly to game view
+                        self.current_view = View::Game {
+                            game_id,
+                            game_state,
+                            our_color: None, // Will be determined by first move
+                        };
+                    }
 
                     // Request initial ghost moves when joining a game if threshold met
                     if self.config.games_finished >= 5 {
@@ -874,24 +911,43 @@ impl App {
                     }
 
                     ui.separator();
-                    ui.heading("Available Games");
+                    ui.heading("🎮 Available Games");
+                    ui.add_space(8.0);
 
                     if available_games_list.is_empty() {
-                        ui.label("No games available");
-                        ui.label("Create a game or wait for others");
+                        ui.group(|ui| {
+                            ui.vertical_centered(|ui| {
+                                ui.label("🔍 No games found");
+                                ui.add_space(4.0);
+                                ui.label("• Create a game to start playing");
+                                ui.label("• Or ask a friend to share their game ticket");
+                                ui.add_space(8.0);
+                                ui.label("💡 Games appear here when other players create them");
+                            });
+                        });
                     } else {
+                        ui.label(format!("Found {} game(s):", available_games_list.len()));
+                        ui.add_space(4.0);
+                        
                         for game in &available_games_list {
-                            if ui
-                                .button(format!(
-                                    "Join Game {} ({}×{})",
-                                    game.id, game.board_size, game.board_size
-                                ))
-                                .clicked()
-                            {
-                                let _ = self.ui_tx.send(UiToNet::JoinGame {
-                                    game_id: game.id.clone(),
+                            ui.group(|ui| {
+                                ui.horizontal(|ui| {
+                                    // Game info
+                                    ui.vertical(|ui| {
+                                        ui.label(format!("🎯 Game: {}", game.id));
+                                        ui.label(format!("📐 Board: {}×{}", game.board_size, game.board_size));
+                                    });
+                                    
+                                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                                        if ui.button("🚀 Join Game").clicked() {
+                                            let _ = self.ui_tx.send(UiToNet::JoinGame {
+                                                game_id: game.id.clone(),
+                                            });
+                                        }
+                                    });
                                 });
-                            }
+                            });
+                            ui.add_space(4.0);
                         }
                     }
                 });
@@ -901,23 +957,135 @@ impl App {
 
     fn render_lobby(&mut self, ui: &mut egui::Ui) {
         if let View::Lobby { game_id, .. } = &self.current_view {
-            ui.heading("Waiting for opponent...");
-            ui.add_space(8.0);
+            // Title and status
+            ui.vertical_centered(|ui| {
+                ui.heading("🎯 Game Created Successfully!");
+                ui.add_space(8.0);
+                ui.label("Now waiting for an opponent to join...");
+                ui.add_space(16.0);
+            });
 
-            // Show game code with clear labeling
-            show_labeled_identifier(ui, IdentifierType::GameCode, game_id);
+            // Instructions panel
+            ui.group(|ui| {
+                ui.set_min_width(ui.available_width());
+                ui.vertical(|ui| {
+                    ui.heading("📋 How to Invite a Friend:");
+                    ui.add_space(8.0);
+                    
+                    ui.horizontal(|ui| {
+                        ui.label("1. ");
+                        ui.label("Copy the Connection Ticket below");
+                    });
+                    ui.horizontal(|ui| {
+                        ui.label("2. ");
+                        ui.label("Send it to your friend (via text, email, chat)");
+                    });
+                    ui.horizontal(|ui| {
+                        ui.label("3. ");
+                        ui.label("Your friend clicks 'Join Game' and pastes the ticket");
+                    });
+                    ui.horizontal(|ui| {
+                        ui.label("4. ");
+                        ui.label("Game starts automatically when they connect!");
+                    });
+                });
+            });
+
+            ui.add_space(16.0);
+
+            // Game ID section
+            ui.group(|ui| {
+                ui.set_min_width(ui.available_width());
+                ui.vertical(|ui| {
+                    ui.horizontal(|ui| {
+                        ui.heading("🎮 Game ID:");
+                        ui.label(game_id);
+                    });
+                    ui.add_space(4.0);
+                    ui.label("(This is your game identifier)");
+                });
+            });
 
             ui.add_space(12.0);
 
-            // Show ticket when available
+            // Connection ticket section
             if let Some(ticket) = &self.current_ticket {
-                show_labeled_identifier(ui, IdentifierType::ConnectionTicket, ticket);
+                ui.group(|ui| {
+                    ui.set_min_width(ui.available_width());
+                    ui.vertical(|ui| {
+                        ui.heading("🎫 Connection Ticket (Share This!):");
+                        ui.add_space(8.0);
+                        
+                        // Make the ticket more prominent and copyable
+                        ui.horizontal(|ui| {
+                            ui.with_layout(egui::Layout::top_down(egui::Align::LEFT), |ui| {
+                                // Truncate very long tickets for display
+                                let display_ticket = if ticket.len() > 100 {
+                                    format!("{}...", &ticket[..100])
+                                } else {
+                                    ticket.clone()
+                                };
+                                
+                                ui.add(
+                                    egui::TextEdit::multiline(&mut display_ticket.clone())
+                                        .desired_width(400.0)
+                                        .desired_rows(3)
+                                        .font(egui::TextStyle::Monospace)
+                                );
+                            });
+                            
+                            ui.vertical(|ui| {
+                                if ui.button("📋 Copy Ticket").clicked() {
+                                    if let Err(e) = self.clipboard_helper.copy_ticket(ticket, &mut self.toast_manager) {
+                                        tracing::warn!("Failed to copy ticket: {}", e);
+                                    } else {
+                                        self.toast_manager.add_toast("Connection ticket copied! Share it with your friend.", crate::toast_manager::ToastType::Success);
+                                    }
+                                }
+                                
+                                if ui.button("🔄 New Ticket").clicked() {
+                                    let _ = self.ui_tx.send(UiToNet::GetTicket);
+                                }
+                            });
+                        });
+                        
+                        ui.add_space(4.0);
+                        ui.label("💡 Your friend needs this entire ticket to connect");
+                    });
+                });
+            } else {
+                ui.group(|ui| {
+                    ui.horizontal(|ui| {
+                        ui.spinner();
+                        ui.label("Generating connection ticket...");
+                    });
+                });
             }
 
-            if ui.button("Leave Game").clicked() {
-                let _ = self.ui_tx.send(UiToNet::LeaveGame);
-                let _ = self.ui_tx.send(UiToNet::Shutdown);
-            }
+            ui.add_space(20.0);
+
+            // Action buttons
+            ui.horizontal(|ui| {
+                if ui.button("🔙 Back to Menu").clicked() {
+                    let _ = self.ui_tx.send(UiToNet::LeaveGame);
+                    self.current_view = View::default();
+                }
+                
+                ui.add_space(20.0);
+                
+                if ui.button("🔄 Refresh").clicked() {
+                    let _ = self.ui_tx.send(UiToNet::RefreshGames);
+                    let _ = self.ui_tx.send(UiToNet::GetTicket);
+                }
+            });
+
+            ui.add_space(20.0);
+
+            // Status information
+            ui.separator();
+            ui.add_space(8.0);
+            ui.label("ℹ️ The game will start automatically when your opponent connects.");
+            ui.label("   Both players will see the game board and can begin playing.");
         }
     }
 
@@ -1292,25 +1460,50 @@ impl eframe::App for App {
             }
 
             if self.show_ticket_modal {
-                egui::Window::new("🔑 Direct Connection")
+                egui::Window::new("🎫 Join Friend's Game")
                     .collapsible(false)
                     .resizable(false)
+                    .default_width(500.0)
                     .show(ctx, |ui| {
                         ui.add_space(8.0);
-
-                        // Use the new labeled input
-                        show_labeled_input(
-                            ui,
-                            IdentifierType::ConnectionTicket,
-                            &mut self.ticket_input,
-                            "Paste connection ticket here...",
-                        );
+                        
+                        // Instructions
+                        ui.group(|ui| {
+                            ui.vertical(|ui| {
+                                ui.heading("📋 How to Join:");
+                                ui.add_space(4.0);
+                                ui.label("1. Ask your friend to create a game");
+                                ui.label("2. Get the connection ticket from your friend");
+                                ui.label("3. Paste the ticket below and click Connect");
+                                ui.label("4. You'll join their game automatically!");
+                            });
+                        });
 
                         ui.add_space(12.0);
+
+                        // Ticket input with better labeling
+                        ui.vertical(|ui| {
+                            ui.heading("🎫 Connection Ticket:");
+                            ui.add_space(4.0);
+                            ui.label("Paste the ticket your friend shared with you:");
+                            
+                            ui.add(
+                                egui::TextEdit::multiline(&mut self.ticket_input)
+                                    .desired_width(ui.available_width())
+                                    .desired_rows(4)
+                                    .hint_text("Paste the long connection ticket string here...")
+                                    .font(egui::TextStyle::Monospace)
+                            );
+                        });
+
+                        ui.add_space(12.0);
+                        
+                        // Action buttons
                         ui.horizontal(|ui| {
                             let connect_btn = ui.add_enabled(
                                 !self.ticket_input.trim().is_empty(),
-                                egui::Button::new("Connect"),
+                                egui::Button::new("🚀 Connect to Game")
+                                    .fill(egui::Color32::from_rgb(0, 150, 0))
                             );
 
                             if connect_btn.clicked() {
@@ -1319,12 +1512,21 @@ impl eframe::App for App {
                                 });
                                 self.ticket_input.clear();
                                 self.show_ticket_modal = false;
+                                self.toast_manager.add_toast("Connecting to game...", crate::toast_manager::ToastType::Info);
                             }
-                            if ui.button("Cancel").clicked() {
+                            
+                            ui.add_space(20.0);
+                            
+                            if ui.button("❌ Cancel").clicked() {
                                 self.ticket_input.clear();
                                 self.show_ticket_modal = false;
                             }
                         });
+                        
+                        ui.add_space(8.0);
+                        ui.separator();
+                        ui.add_space(4.0);
+                        ui.label("💡 Tip: Connection tickets are long strings that look like random text");
                     });
             }
         });
